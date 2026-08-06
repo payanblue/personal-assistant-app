@@ -19,6 +19,21 @@ type WeatherResponse = {
   daily: WeatherDaily;
 };
 
+type Memo = {
+  id: number;
+  title: string;
+  content: string;
+  category: "개인" | "아이디어" | "생활";
+  pinned: boolean;
+  deleted: boolean;
+  createdAt: string;
+};
+
+const sampleMemos: Memo[] = [
+  { id: 1, title: "주말 장보기 목록", content: "우유, 계란, 세제, 휴지 구입하기", category: "개인", pinned: true, deleted: false, createdAt: "오늘 오전 9:20" },
+  { id: 2, title: "개인비서 앱에 추가할 기능", content: "자주 사용하는 명령을 홈에 바로가기 형태로 정리하기", category: "아이디어", pinned: false, deleted: false, createdAt: "어제 오후 8:10" },
+];
+
 const menuItems: { icon: string; label: string; id: Tab }[] = [
   { icon: "⌂", label: "홈", id: "home" },
   { icon: "✎", label: "메모", id: "memo" },
@@ -39,11 +54,29 @@ function HomeView({ go }: { go: (tab: Tab) => void }) {
 }
 
 function PageHeader({ title, action }: { title: string; action?: string }) {
-  return <header className="page-header"><div><p className="eyebrow">나의 비서</p><h1>{title}</h1></div>{action && <button className="round-add">{action}</button>}</header>;
+  return <header className="page-header"><div><p className="eyebrow">나의 비서</p><h1>{title}</h1></div>{action && <button className="round-add" onClick={() => document.querySelector<HTMLButtonElement>(".floating-button")?.click()}>{action}</button>}</header>;
 }
 
-function MemoView() {
-  return <><PageHeader title="메모" action="＋"/><div className="search-box">⌕ <span>메모 검색</span></div><div className="filter-row"><button className="selected">전체</button><button>중요</button><button>미완료</button></div><section className="card-list"><article><div className="card-top"><span className="tag personal">개인</span><small>오늘 오전 9:20</small></div><h3>주말 장보기 목록</h3><p>우유, 계란, 세제, 휴지 구입하기</p></article><article><div className="card-top"><span className="tag idea">아이디어</span><small>어제 오후 8:10</small></div><h3>개인비서 앱에 추가할 기능</h3><p>자주 사용하는 명령을 홈에 바로가기 형태로...</p></article></section><button className="floating-button">＋ 새 메모</button></>;
+function MemoView({ memos, setMemos }: { memos: Memo[]; setMemos: React.Dispatch<React.SetStateAction<Memo[]>> }) {
+  const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState<"all" | "pinned" | "trash">("all");
+  const [editing, setEditing] = useState<Memo | null>(null);
+  const [writing, setWriting] = useState(false);
+  const [title, setTitle] = useState("");
+  const [content, setContent] = useState("");
+  const [category, setCategory] = useState<Memo["category"]>("개인");
+
+  const openNew = () => { setEditing(null); setTitle(""); setContent(""); setCategory("개인"); setWriting(true); };
+  const openEdit = (memo: Memo) => { setEditing(memo); setTitle(memo.title); setContent(memo.content); setCategory(memo.category); setWriting(true); };
+  const saveMemo = () => {
+    if (!title.trim() && !content.trim()) return;
+    if (editing) setMemos(items => items.map(item => item.id === editing.id ? { ...item, title: title.trim() || "제목 없는 메모", content: content.trim(), category } : item));
+    else setMemos(items => [{ id: Date.now(), title: title.trim() || "제목 없는 메모", content: content.trim(), category, pinned: false, deleted: false, createdAt: "방금 전" }, ...items]);
+    setWriting(false);
+  };
+  const visibleMemos = memos.filter(memo => filter === "trash" ? memo.deleted : !memo.deleted).filter(memo => filter !== "pinned" || memo.pinned).filter(memo => `${memo.title} ${memo.content}`.toLowerCase().includes(search.toLowerCase())).sort((a, b) => Number(b.pinned) - Number(a.pinned));
+
+  return <><PageHeader title={filter === "trash" ? "휴지통" : "메모"} action="＋"/><label className="memo-search">⌕<input value={search} onChange={event => setSearch(event.target.value)} placeholder="제목이나 내용 검색"/></label><div className="filter-row"><button className={filter === "all" ? "selected" : ""} onClick={() => setFilter("all")}>전체</button><button className={filter === "pinned" ? "selected" : ""} onClick={() => setFilter("pinned")}>★ 중요</button><button className={filter === "trash" ? "selected" : ""} onClick={() => setFilter("trash")}>휴지통</button></div>{writing && <section className="memo-editor"><input value={title} onChange={event => setTitle(event.target.value)} placeholder="제목" autoFocus/><textarea value={content} onChange={event => setContent(event.target.value)} placeholder="내용을 입력하세요" rows={5}/><div className="editor-actions"><select value={category} onChange={event => setCategory(event.target.value as Memo["category"])}><option>개인</option><option>아이디어</option><option>생활</option></select><button className="cancel" onClick={() => setWriting(false)}>취소</button><button onClick={saveMemo}>저장</button></div></section>}<section className="card-list">{visibleMemos.map(memo => <article key={memo.id}><div className="card-top"><span className={`tag ${memo.category === "아이디어" ? "idea" : "personal"}`}>{memo.category}</span><small>{memo.pinned && "★ 중요 · "}{memo.createdAt}</small></div><h3>{memo.title}</h3><p>{memo.content || "내용 없음"}</p><div className="memo-actions">{filter === "trash" ? <><button onClick={() => setMemos(items => items.map(item => item.id === memo.id ? { ...item, deleted: false } : item))}>복구</button><button className="danger" onClick={() => setMemos(items => items.filter(item => item.id !== memo.id))}>영구 삭제</button></> : <><button onClick={() => setMemos(items => items.map(item => item.id === memo.id ? { ...item, pinned: !item.pinned } : item))}>{memo.pinned ? "★ 고정 해제" : "☆ 중요"}</button><button onClick={() => openEdit(memo)}>수정</button><button onClick={() => setMemos(items => items.map(item => item.id === memo.id ? { ...item, deleted: true } : item))}>삭제</button></>}</div></article>)}{visibleMemos.length === 0 && <div className="empty-memos"><strong>표시할 메모가 없어요</strong><p>{search ? "다른 검색어를 입력해 보세요." : "새 메모를 작성해 보세요."}</p></div>}</section>{filter !== "trash" && !writing && <button className="floating-button" onClick={openNew}>＋ 새 메모</button>}</>;
 }
 
 function WorkView() {
@@ -101,6 +134,8 @@ function MoreView({ go }: { go: (tab: Tab) => void }) {
 
 export default function Home() {
   const [tab, setTab] = useState<Tab>("home");
-  const views = { home: <HomeView go={setTab}/>, memo: <MemoView/>, work: <WorkView/>, calendar: <CalendarView/>, more: <MoreView go={setTab}/>, weather: <WeatherView back={() => setTab("more")}/> };
+  const [memos, setMemos] = useState<Memo[]>(() => { if (typeof window === "undefined") return sampleMemos; const saved = window.localStorage.getItem("my-assistant-memos"); if (!saved) return sampleMemos; try { return JSON.parse(saved); } catch { return sampleMemos; } });
+  useEffect(() => { window.localStorage.setItem("my-assistant-memos", JSON.stringify(memos)); }, [memos]);
+  const views = { home: <HomeView go={setTab}/>, memo: <MemoView memos={memos} setMemos={setMemos}/>, work: <WorkView/>, calendar: <CalendarView/>, more: <MoreView go={setTab}/>, weather: <WeatherView back={() => setTab("more")}/> };
   return <main className="app-shell"><section className="phone-screen"><div className="view-content" key={tab}>{views[tab]}</div><nav className="bottom-nav" aria-label="주요 메뉴">{menuItems.map(item=><button className={tab===item.id?"active":""} onClick={()=>setTab(item.id)} key={item.id}><span>{item.icon}</span>{item.label}</button>)}</nav></section></main>;
 }
