@@ -1,6 +1,6 @@
 @import "tailwindcss";
 
-:root { --ink: #17231e; --muted: #68776f; --green: #216b4a; --pale: #e3ece6; --app-background: #dce4df; --page-background: #eef2ef; --card-background: #fafcfb; }
+:root { --ink: #17231e; --muted: #627068; --green: #216b4a; --pale: #dce7e0; --app-background: #c7d2cb; --page-background: #dce4df; --card-background: #fafcfb; }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--app-background); color: var(--ink); font-family: Arial, "Malgun Gothic", sans-serif; }
 button { font: inherit; color: inherit; }
@@ -33,7 +33,7 @@ h1 { margin: 0; font-size: 25px; letter-spacing: -1px; }
 .shortcut-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 24px; }
 .shortcut-grid button { display: grid; gap: 4px; padding: 16px; border: 0; border-radius: 18px; background: var(--pale); text-align: left; }
 .shortcut-grid button span { font-size: 20px; }.shortcut-grid strong { font-size: 14px; }.shortcut-grid small { color: var(--muted); font-size: 11px; }
-.bottom-nav { position: absolute; inset: auto 0 0; height: 80px; display: grid; grid-template-columns: repeat(5, 1fr); border-top: 1px solid #d7dfda; background: #f8faf8f2; backdrop-filter: blur(12px); }
+.bottom-nav { position: absolute; inset: auto 0 0; height: 80px; display: grid; grid-template-columns: repeat(5, 1fr); border-top: 1px solid #cbd5cf; background: #eef3eff2; backdrop-filter: blur(12px); }
 .bottom-nav button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; border: 0; background: none; color: #87938d; font-size: 10px; }
 .bottom-nav button span { height: 22px; font-size: 18px; font-weight: 700; }.bottom-nav .active { color: var(--green); }
 .view-content { animation: appear .18s ease-out; }
