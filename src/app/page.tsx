@@ -2,13 +2,12 @@
 
 import { useState } from "react";
 
-type Tab = "home" | "memo" | "work" | "shopping" | "calendar" | "more";
+type Tab = "home" | "memo" | "work" | "calendar" | "more";
 
 const menuItems: { icon: string; label: string; id: Tab }[] = [
   { icon: "⌂", label: "홈", id: "home" },
   { icon: "✎", label: "메모", id: "memo" },
   { icon: "✓", label: "업무", id: "work" },
-  { icon: "♛", label: "쇼핑", id: "shopping" },
   { icon: "□", label: "일정", id: "calendar" },
   { icon: "•••", label: "더보기", id: "more" },
 ];
@@ -20,7 +19,7 @@ function HomeView({ go }: { go: (tab: Tab) => void }) {
     <button className="weather-card" onClick={() => go("more")}><div><p>서울 · 맑음</p><strong>28°</strong><span>체감 30° · 비 올 확률 10%</span></div><div className="sun" aria-hidden="true">☀</div></button>
     <section className="section-block"><div className="section-title"><h2>오늘 일정</h2><button onClick={() => go("calendar")}>전체보기</button></div><article className="schedule-card"><div className="time"><strong>10:30</strong><span>오전</span></div><div className="divider"/><div><strong>프로젝트 진행 확인</strong><p>30분 · 업무</p></div></article></section>
     <section className="section-block"><div className="section-title"><h2>할 일</h2><span className="count">2개 남음</span></div><div className="todo-list"><label><input type="checkbox"/> 견적서 내용 확인하기</label><label><input type="checkbox"/> 장보기 목록 정리하기</label></div></section>
-    <section className="shortcut-grid"><button onClick={() => go("memo")}><span>📝</span><strong>빠른 메모</strong><small>바로 기록하기</small></button><button onClick={() => go("shopping")}><span>🛍️</span><strong>쇼핑 검색</strong><small>배송비 포함 최저가</small></button></section>
+    <section className="shortcut-grid"><button onClick={() => go("memo")}><span>📝</span><strong>빠른 메모</strong><small>바로 기록하기</small></button><button onClick={() => go("work")}><span>✅</span><strong>업무 메모</strong><small>진행할 업무 보기</small></button></section>
   </>;
 }
 
@@ -40,16 +39,12 @@ function CalendarView() {
   return <><PageHeader title="일정" action="＋"/><section className="month-card"><div className="month-title"><button>‹</button><strong>2026년 8월</strong><button>›</button></div><div className="weekdays">{["일","월","화","수","목","금","토"].map(d=><span key={d}>{d}</span>)}</div><div className="days">{Array.from({length:35},(_,i)=>{const n=i-4; return <button className={n===6?"today":n<1||n>31?"empty":""} key={i}>{n>0&&n<32?n:""}</button>})}</div></section><section className="section-block"><div className="section-title"><h2>8월 6일 일정</h2><span className="count">1개</span></div><article className="schedule-card"><div className="time"><strong>10:30</strong><span>오전</span></div><div className="divider"/><div><strong>프로젝트 진행 확인</strong><p>알림 10분 전 · 업무</p></div></article></section><button className="voice-button">● 음성으로 일정 추가</button></>;
 }
 
-function ShoppingView() {
-  return <><PageHeader title="쇼핑 검색"/><div className="shopping-search"><span>⌕</span><input aria-label="상품 검색" placeholder="상품명이나 모델명을 입력하세요"/><button>검색</button></div><div className="shopping-guide"><strong>배송비까지 더한 가격으로 비교해요</strong><p>쿠폰·카드·멤버십 조건은 따로 표시합니다.</p></div><section className="section-block"><div className="section-title"><h2>최근 검색</h2><button>전체 삭제</button></div><div className="recent-searches"><button>삼성 990 PRO 2TB <span>›</span></button><button>무선 청소기 <span>›</span></button></div></section><section className="shopping-preview"><p>검색 결과는 이렇게 보여드려요</p><article><span className="rank">1</span><div><strong>A 판매처</strong><small>상품 184,000원 · 무료배송</small></div><b>184,000원</b></article><article><span className="rank second">2</span><div><strong>B 판매처</strong><small>상품 181,500원 + 배송 3,000원</small></div><b>184,500원</b></article><small className="preview-note">예시 화면이며 실제 가격은 기능 연결 후 표시됩니다.</small></section></>;
-}
-
 function MoreView() {
   return <><PageHeader title="더보기"/><section className="feature-list"><button><span className="feature-icon weather">☀</span><div><strong>날씨</strong><small>시간별·주간 예보와 기상특보</small></div><b>›</b></button></section><h2 className="settings-title">설정</h2><section className="feature-list compact"><button><span>🔔</span><div><strong>알림 설정</strong></div><b>›</b></button><button><span>🎙</span><div><strong>음성 명령 설정</strong></div><b>›</b></button><button><span>⚙</span><div><strong>앱 설정</strong></div><b>›</b></button></section><div className="coming-note"><strong>현재는 화면 설계 단계예요</strong><p>메모 저장, 일정 연결, 날씨와 쇼핑 정보는 다음 단계에서 하나씩 연결합니다.</p></div></>;
 }
 
 export default function Home() {
   const [tab, setTab] = useState<Tab>("home");
-  const views = { home: <HomeView go={setTab}/>, memo: <MemoView/>, work: <WorkView/>, shopping: <ShoppingView/>, calendar: <CalendarView/>, more: <MoreView/> };
+  const views = { home: <HomeView go={setTab}/>, memo: <MemoView/>, work: <WorkView/>, calendar: <CalendarView/>, more: <MoreView/> };
   return <main className="app-shell"><section className="phone-screen"><div className="view-content" key={tab}>{views[tab]}</div><nav className="bottom-nav" aria-label="주요 메뉴">{menuItems.map(item=><button className={tab===item.id?"active":""} onClick={()=>setTab(item.id)} key={item.id}><span>{item.icon}</span>{item.label}</button>)}</nav></section></main>;
 }
