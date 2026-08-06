@@ -1,6 +1,6 @@
 @import "tailwindcss";
 
-:root { --ink: #17231e; --muted: #627068; --green: #216b4a; --pale: #dce7e0; --app-background: #c7d2cb; --page-background: #dce4df; --card-background: #fafcfb; }
+:root { --ink: #17231e; --muted: #627068; --green: #216b4a; --pale: #dce7e0; --app-background: #c7d2cb; --page-background: #dce4df; --card-background: #edf1ed; --nav-background: #d2dcd5; }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--app-background); color: var(--ink); font-family: Arial, "Malgun Gothic", sans-serif; }
 button { font: inherit; color: inherit; }
@@ -10,7 +10,7 @@ button { font: inherit; color: inherit; }
 .eyebrow { margin: 0 0 6px; color: var(--muted); font-size: 13px; font-weight: 700; }
 h1 { margin: 0; font-size: 25px; letter-spacing: -1px; }
 .profile-button { width: 40px; height: 40px; border: 0; border-radius: 50%; background: #d9ebdf; color: var(--green); font-weight: 800; }
-.quick-input { width: 100%; height: 58px; display: flex; align-items: center; gap: 12px; padding: 0 16px; border: 1px solid #dae4dd; border-radius: 18px; background: white; color: #69766f; box-shadow: 0 8px 25px #3359440b; text-align: left; }
+.quick-input { width: 100%; height: 58px; display: flex; align-items: center; gap: 12px; padding: 0 16px; border: 1px solid #cdd8d1; border-radius: 18px; background: var(--card-background); color: #69766f; box-shadow: 0 8px 25px #3359440b; text-align: left; }
 .quick-input strong { margin-left: auto; color: var(--green); font-size: 22px; }
 .mic { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 50%; background: var(--green); color: white; font-size: 8px; }
 .weather-card { width: 100%; min-height: 155px; display: flex; justify-content: space-between; align-items: center; margin-top: 18px; padding: 22px; border: 0; border-radius: 24px; color: white; background: linear-gradient(135deg, #36785b, #78aa83); text-align: left; }
@@ -23,24 +23,24 @@ h1 { margin: 0; font-size: 25px; letter-spacing: -1px; }
 .section-title h2 { margin: 0; font-size: 18px; }
 .section-title button { border: 0; background: none; color: var(--green); font-size: 12px; font-weight: 700; }
 .count { color: var(--muted); font-size: 12px; }
-.schedule-card { display: flex; align-items: center; gap: 14px; padding: 17px; border: 1px solid #e2e9e4; border-radius: 18px; background: white; }
+.schedule-card { display: flex; align-items: center; gap: 14px; padding: 17px; border: 1px solid #cdd7d0; border-radius: 18px; background: var(--card-background); }
 .time { display: flex; flex-direction: column; min-width: 46px; }.time strong { font-size: 15px; }.time span { color: var(--muted); font-size: 10px; }
 .divider { width: 3px; height: 39px; border-radius: 4px; background: #e0ad58; }
 .schedule-card p { margin: 5px 0 0; color: var(--muted); font-size: 12px; }
 .todo-list { display: grid; gap: 8px; }
-.todo-list label { display: flex; align-items: center; gap: 11px; padding: 14px 15px; border: 1px solid #e6ebe7; border-radius: 15px; background: white; font-size: 14px; }
+.todo-list label { display: flex; align-items: center; gap: 11px; padding: 14px 15px; border: 1px solid #ccd6cf; border-radius: 15px; background: var(--card-background); font-size: 14px; }
 .todo-list input { width: 18px; height: 18px; accent-color: var(--green); }
 .shortcut-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 24px; }
 .shortcut-grid button { display: grid; gap: 4px; padding: 16px; border: 0; border-radius: 18px; background: var(--pale); text-align: left; }
 .shortcut-grid button span { font-size: 20px; }.shortcut-grid strong { font-size: 14px; }.shortcut-grid small { color: var(--muted); font-size: 11px; }
-.bottom-nav { position: absolute; inset: auto 0 0; height: 80px; display: grid; grid-template-columns: repeat(5, 1fr); border-top: 1px solid #cbd5cf; background: #eef3eff2; backdrop-filter: blur(12px); }
+.bottom-nav { position: absolute; inset: auto 0 0; height: 80px; display: grid; grid-template-columns: repeat(5, 1fr); border-top: 1px solid #bdcac2; background: color-mix(in srgb, var(--nav-background) 94%, transparent); backdrop-filter: blur(12px); }
 .bottom-nav button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; border: 0; background: none; color: #87938d; font-size: 10px; }
 .bottom-nav button span { height: 22px; font-size: 18px; font-weight: 700; }.bottom-nav .active { color: var(--green); }
 .view-content { animation: appear .18s ease-out; }
 @keyframes appear { from { opacity: .35; transform: translateY(4px); } }
 .page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; }
 .round-add { width: 42px; height: 42px; border: 0; border-radius: 50%; background: var(--green); color: white; font-size: 24px; }
-.search-box { display: flex; gap: 10px; padding: 15px; border: 1px solid #dfe7e1; border-radius: 15px; background: white; color: var(--muted); }
+.search-box { display: flex; gap: 10px; padding: 15px; border: 1px solid #cbd6ce; border-radius: 15px; background: var(--card-background); color: var(--muted); }
 .filter-row { display: flex; gap: 8px; margin: 16px 0; }.filter-row button { padding: 8px 15px; border: 0; border-radius: 30px; background: #edf1ee; color: #69766f; font-size: 12px; }.filter-row .selected { background: var(--green); color: white; }
 .card-list, .work-feed { display: grid; gap: 11px; }.card-list article, .work-feed article { padding: 18px; border: 1px solid #e2e8e4; border-radius: 18px; background: white; }.card-top, .feed-line { display: flex; align-items: center; justify-content: space-between; }.card-top small, .feed-line small { color: var(--muted); }.tag { padding: 4px 8px; border-radius: 6px; font-size: 10px; font-weight: 700; }.tag.personal { background: #e4f1e9; color: var(--green); }.tag.idea { background: #fff0d7; color: #9b6511; }.card-list h3, .work-feed h3 { margin: 14px 0 7px; font-size: 16px; }.card-list p, .work-feed p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.6; }
 .floating-button, .voice-button { width: 100%; margin-top: 20px; padding: 15px; border: 0; border-radius: 15px; background: var(--green); color: white; font-weight: 700; }
@@ -76,4 +76,5 @@ h1 { margin: 0; font-size: 25px; letter-spacing: -1px; }
 .memo-search { display: flex; align-items: center; gap: 10px; padding: 0 15px; border: 1px solid #dfe7e1; border-radius: 15px; background: white; color: var(--muted); }.memo-search input { width: 100%; height: 48px; border: 0; outline: 0; background: transparent; font-size: 13px; }
 .memo-editor { display: grid; gap: 10px; margin-bottom: 14px; padding: 15px; border: 1px solid #cfe1d5; border-radius: 18px; background: #f8fbf9; }.memo-editor>input, .memo-editor textarea { width: 100%; padding: 11px; border: 1px solid #dce5df; border-radius: 11px; outline-color: var(--green); background: white; resize: vertical; }.memo-editor>input { font-size: 15px; font-weight: 700; }.memo-editor textarea { font: inherit; font-size: 13px; line-height: 1.55; }.editor-actions { display: flex; gap: 8px; }.editor-actions select { margin-right: auto; padding: 8px; border: 1px solid #d7e1da; border-radius: 9px; background: white; }.editor-actions button { padding: 8px 13px; border: 0; border-radius: 9px; background: var(--green); color: white; font-size: 11px; font-weight: 700; }.editor-actions .cancel { background: #e8ede9; color: #66736c; }
 .memo-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 13px; padding-top: 11px; border-top: 1px solid #edf0ee; }.memo-actions button { padding: 6px 9px; border: 0; border-radius: 8px; background: #edf4ef; color: var(--green); font-size: 10px; font-weight: 700; }.memo-actions .danger { background: #fff0ed; color: #a74838; }.empty-memos { padding: 45px 20px; border-radius: 18px; background: #f2f6f3; text-align: center; }.empty-memos p { margin: 7px 0 0; color: var(--muted); font-size: 11px; }
+.card-list article, .work-feed article, .month-card, .feature-list button, .forecast-list article, .memo-search { background: var(--card-background); border-color: #cbd6ce; }
 @media (max-width: 480px) { .app-shell { padding: 0; place-items: start center; }.phone-screen { min-height: 100vh; box-shadow: none; } }
