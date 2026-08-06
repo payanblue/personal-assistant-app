@@ -70,10 +70,7 @@ type Memo = {
   createdAt: string;
 };
 
-const sampleMemos: Memo[] = [
-  { id: 1, title: "주말 장보기 목록", content: "우유, 계란, 세제, 휴지 구입하기", category: "개인", pinned: true, deleted: false, createdAt: "오늘 오전 9:20" },
-  { id: 2, title: "개인비서 앱에 추가할 기능", content: "자주 사용하는 명령을 홈에 바로가기 형태로 정리하기", category: "아이디어", pinned: false, deleted: false, createdAt: "어제 오후 8:10" },
-];
+const sampleMemos: Memo[] = [];
 
 type WorkItem = {
   id: number;
@@ -85,11 +82,7 @@ type WorkItem = {
   createdAt: string;
 };
 
-const sampleWorkItems: WorkItem[] = [
-  { id: 1, title: "견적서 내용 확인하기", details: "최종 금액과 납기 일정을 다시 확인해야 함", project: "프로젝트", completed: false, createdAt: "오늘" },
-  { id: 2, title: "장보기 목록 정리하기", details: "필요한 생활용품 확인", project: "생활", completed: false, createdAt: "오늘" },
-  { id: 3, title: "거래처 담당자에게 전화", details: "수정된 일정 전달 완료", project: "연락", completed: true, createdAt: "어제" },
-];
+const sampleWorkItems: WorkItem[] = [];
 
 type CalendarEvent = {
   id: number;
@@ -116,9 +109,7 @@ type BackupPayload = {
   weatherLocation?: WeatherLocation;
 };
 
-const sampleEvents: CalendarEvent[] = [
-  { id: 1, title: "프로젝트 진행 확인", date: "2026-08-06", time: "10:30", content: "진행 상황과 다음 작업 확인", repeatYearly: false, calendarType: "solar", reminder3Days: false, reminder1Day: true, deleted: false },
-];
+const sampleEvents: CalendarEvent[] = [];
 
 function normalizeCalendarEvent(event: CalendarEvent & { duration?: string; category?: string }): CalendarEvent {
   return {

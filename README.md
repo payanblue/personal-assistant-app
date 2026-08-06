@@ -1,36 +1,36 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 나의 비서
 
-## Getting Started
+모바일 우선으로 만든 가벼운 개인비서 웹앱입니다.
 
-First, run the development server:
+## 주요 기능
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+- 개인 메모와 검색·중요 표시·휴지통
+- 장기간 보관하는 업무 메모와 안전한 삭제 절차
+- 연락처 전화·문자·복사
+- 일정, 메시지 알림, 양력·음력 매년 반복
+- Google Calendar 일정 전송
+- 무료 다중모델 날씨 비교와 지역 검색
+- 음성으로 메모·업무·일정 입력
+- 전체 데이터 파일 백업·복원
+- 모바일 홈 화면 설치와 기본 오프라인 실행
+
+## 개인정보
+
+메모·업무·일정은 기본적으로 사용 중인 브라우저의 로컬 저장소에만 보관됩니다. 공개 저장소에는 사용자의 실제 데이터가 포함되지 않습니다. 브라우저 데이터를 지우거나 기기를 바꾸기 전에는 앱의 `더보기 → 전체 데이터 백업`을 사용하세요.
+
+## 로컬 실행
+
+```powershell
+npm.cmd install
+npm.cmd run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+터미널에 표시된 `http://localhost:...` 주소를 브라우저에서 엽니다.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Google Calendar
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+연동을 사용하려면 [GOOGLE_CALENDAR_SETUP.md](./GOOGLE_CALENDAR_SETUP.md)의 한 번만 필요한 설정을 완료하세요.
 
-## Learn More
+## 배포
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+`master` 브랜치가 GitHub에 올라가면 GitHub Pages 자동 배포 작업이 실행되도록 구성되어 있습니다.
