@@ -14,7 +14,10 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "나의 비서",
-  description: "메모, 일정, 날씨와 쇼핑을 한곳에서 관리하는 개인비서",
+  description: "메모, 업무, 일정과 날씨를 가볍게 관리하는 개인비서",
+  manifest: "/manifest.webmanifest",
+  icons: { icon: "/assistant-icon.svg", apple: "/assistant-icon.svg" },
+  appleWebApp: { capable: true, statusBarStyle: "default", title: "나의 비서" },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

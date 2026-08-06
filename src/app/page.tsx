@@ -461,6 +461,9 @@ export default function Home() {
   useEffect(() => { if (storageReady) window.localStorage.setItem("my-assistant-memos", JSON.stringify(memos)); }, [memos, storageReady]);
   useEffect(() => { if (storageReady) window.localStorage.setItem("my-assistant-work", JSON.stringify(workItems)); }, [workItems, storageReady]);
   useEffect(() => { if (storageReady) window.localStorage.setItem("my-assistant-events", JSON.stringify(events)); }, [events, storageReady]);
+  useEffect(() => {
+    if (process.env.NODE_ENV === "production" && "serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => undefined);
+  }, []);
   const saveVoiceEntry = (kind: VoiceKind, text: string, date: string, time: string) => {
     const title = voiceTitle(text);
     if (kind === "memo") { setMemos(current => [{ id: Date.now(), title, content: text, category: "개인", pinned: false, deleted: false, createdAt: "방금 전" }, ...current]); setTab("memo"); }
