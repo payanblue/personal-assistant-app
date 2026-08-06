@@ -29,11 +29,15 @@ jobs:
         run: npm run build
       - name: Publish the built app
         run: |
+          # Keep the finished website outside the repository while the branch is cleaned.
+          mkdir -p "$RUNNER_TEMP/personal-assistant-site"
+          cp -r out/. "$RUNNER_TEMP/personal-assistant-site/"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout --orphan gh-pages
           git rm -rf .
-          cp -r out/. .
+          git clean -fdx
+          cp -r "$RUNNER_TEMP/personal-assistant-site/." .
           touch .nojekyll
           git add --all
           git commit -m "Publish app"
