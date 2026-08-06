@@ -1,9 +1,33 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import KoreanLunarCalendar from "korean-lunar-calendar";
 
 type Tab = "home" | "memo" | "work" | "calendar" | "more" | "weather";
+type VoiceKind = "memo" | "work" | "calendar";
+
+type SpeechRecognitionResultEventLike = Event & { results: { 0: { 0: { transcript: string } } } };
+type SpeechRecognitionErrorEventLike = Event & { error: string };
+type SpeechRecognitionLike = {
+  lang: string;
+  interimResults: boolean;
+  maxAlternatives: number;
+  onstart: (() => void) | null;
+  onend: (() => void) | null;
+  onresult: ((event: SpeechRecognitionResultEventLike) => void) | null;
+  onerror: ((event: SpeechRecognitionErrorEventLike) => void) | null;
+  start: () => void;
+  stop: () => void;
+};
+
+type SpeechRecognitionConstructor = new () => SpeechRecognitionLike;
+
+declare global {
+  interface Window {
+    SpeechRecognition?: SpeechRecognitionConstructor;
+    webkitSpeechRecognition?: SpeechRecognitionConstructor;
+  }
+}
 
 type WeatherDaily = {
   time: string[];
@@ -143,7 +167,63 @@ const menuItems: { icon: string; label: string; id: Tab }[] = [
   { icon: "•••", label: "더보기", id: "more" },
 ];
 
-function HomeView({ go, workItems, setWorkItems, events }: { go: (tab: Tab) => void; workItems: WorkItem[]; setWorkItems: React.Dispatch<React.SetStateAction<WorkItem[]>>; events: CalendarEvent[] }) {
+function analyzeVoiceText(text: string) {
+  const now = new Date();
+  let date = localDateKey(now);
+  let time = "09:00";
+  let kind: VoiceKind = "memo";
+  if (/(업무|할\s?일|해야\s?할|작업)/.test(text)) kind = "work";
+  if (/(일정|약속|회의|예약|생일|오늘|내일|모레|\d+월\s*\d+일|\d+시)/.test(text)) kind = "calendar";
+
+  if (text.includes("모레")) { const target = new Date(now); target.setDate(target.getDate() + 2); date = localDateKey(target); }
+  else if (text.includes("내일")) { const target = new Date(now); target.setDate(target.getDate() + 1); date = localDateKey(target); }
+
+  const dateMatch = text.match(/(?:(\d{4})년\s*)?(\d{1,2})월\s*(\d{1,2})일/);
+  if (dateMatch) date = `${dateMatch[1] ?? now.getFullYear()}-${String(Number(dateMatch[2])).padStart(2, "0")}-${String(Number(dateMatch[3])).padStart(2, "0")}`;
+  const timeMatch = text.match(/(?:(오전|오후)\s*)?(\d{1,2})시(?:\s*(\d{1,2})분)?/);
+  if (timeMatch) {
+    let hour = Number(timeMatch[2]);
+    if (timeMatch[1] === "오후" && hour < 12) hour += 12;
+    if (timeMatch[1] === "오전" && hour === 12) hour = 0;
+    time = `${String(Math.min(hour, 23)).padStart(2, "0")}:${String(Number(timeMatch[3] ?? 0)).padStart(2, "0")}`;
+  }
+  return { kind, date, time };
+}
+
+function voiceTitle(text: string) {
+  const cleaned = text.replace(/^(메모|업무|일정)\s*(해줘|추가|등록|작성)?\s*/g, "").replace(/\s*(메모해줘|기록해줘|추가해줘|등록해줘)\s*$/g, "").trim();
+  return (cleaned || text.trim()).slice(0, 42);
+}
+
+function VoiceCapture({ close, save }: { close: () => void; save: (kind: VoiceKind, text: string, date: string, time: string) => void }) {
+  const initial = analyzeVoiceText("");
+  const [text, setText] = useState("");
+  const [kind, setKind] = useState<VoiceKind>(initial.kind);
+  const [date, setDate] = useState(initial.date);
+  const [time, setTime] = useState(initial.time);
+  const [listening, setListening] = useState(false);
+  const [message, setMessage] = useState("마이크를 누르고 편하게 말씀하세요.");
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const applyAnalysis = (value: string) => { const analyzed = analyzeVoiceText(value); setKind(analyzed.kind); setDate(analyzed.date); setTime(analyzed.time); };
+  const toggleListening = () => {
+    if (listening) { recognitionRef.current?.stop(); return; }
+    const Recognition = window.SpeechRecognition ?? window.webkitSpeechRecognition;
+    if (!Recognition) { setMessage("이 브라우저는 음성인식을 지원하지 않아요. 아래 칸에 직접 입력해 주세요."); return; }
+    const recognition = new Recognition();
+    recognitionRef.current = recognition;
+    recognition.lang = "ko-KR";
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+    recognition.onstart = () => { setListening(true); setMessage("듣고 있어요… 말씀을 마치면 자동으로 글자로 바뀝니다."); };
+    recognition.onend = () => { setListening(false); recognitionRef.current = null; };
+    recognition.onerror = event => { setListening(false); setMessage(event.error === "not-allowed" ? "마이크 권한을 허용한 뒤 다시 눌러 주세요." : "잘 듣지 못했어요. 다시 말하거나 직접 입력해 주세요."); };
+    recognition.onresult = event => { const transcript = event.results[0][0].transcript.trim(); setText(transcript); applyAnalysis(transcript); setMessage("말씀하신 내용을 확인하고 저장 종류를 선택해 주세요."); };
+    recognition.start();
+  };
+  return <div className="voice-overlay" role="dialog" aria-modal="true" aria-label="음성 빠른 입력"><section className="voice-sheet"><header><div><p className="eyebrow">무료 음성 입력</p><h2>말로 기록하기</h2></div><button onClick={close} aria-label="닫기">×</button></header><button className={`listen-button ${listening ? "listening" : ""}`} onClick={toggleListening}><span>{listening ? "■" : "●"}</span>{listening ? "듣기 멈추기" : "마이크로 말하기"}</button><p className="voice-message">{message}</p><label>인식된 내용<textarea value={text} onChange={event => setText(event.target.value)} placeholder="예: 내일 오후 2시 치과 예약 일정 등록해줘" rows={4}/></label><button className="analyze-button" onClick={() => applyAnalysis(text)}>내용 다시 분석</button><div className="voice-kind"><button className={kind === "memo" ? "selected" : ""} onClick={() => setKind("memo")}>메모</button><button className={kind === "work" ? "selected" : ""} onClick={() => setKind("work")}>업무</button><button className={kind === "calendar" ? "selected" : ""} onClick={() => setKind("calendar")}>일정</button></div>{kind === "calendar" && <div className="voice-date"><label>날짜<input type="date" value={date} onChange={event => setDate(event.target.value)}/></label><label>시간<input type="time" value={time} onChange={event => setTime(event.target.value)}/></label></div>}<footer><button className="cancel" onClick={close}>취소</button><button disabled={!text.trim()} onClick={() => save(kind, text.trim(), date, time)}>확인 후 저장</button></footer></section></div>;
+}
+
+function HomeView({ go, workItems, setWorkItems, events, openVoice }: { go: (tab: Tab) => void; workItems: WorkItem[]; setWorkItems: React.Dispatch<React.SetStateAction<WorkItem[]>>; events: CalendarEvent[]; openVoice: () => void }) {
   const activeItems = workItems.filter(item => !item.completed && !item.archived);
   const today = localDateKey();
   const todayEvents = events.filter(event => !event.deleted && eventOccursOn(event, today)).sort((a, b) => a.time.localeCompare(b.time));
@@ -157,7 +237,7 @@ function HomeView({ go, workItems, setWorkItems, events }: { go: (tab: Tab) => v
   });
   return <>
     <header className="topbar"><div><p className="eyebrow">8월 6일 목요일</p><h1>좋은 아침이에요 👋</h1></div><button className="profile-button" aria-label="내 정보">나</button></header>
-    <button className="quick-input" onClick={() => go("memo")}><span className="mic">●</span><span>메모나 일정을 말해보세요</span><strong>＋</strong></button>
+    <button className="quick-input" onClick={openVoice}><span className="mic">●</span><span>메모나 일정을 말해보세요</span><strong>＋</strong></button>
     {reminderMessages.length > 0 && <section className="reminder-messages" aria-label="일정 알림">{reminderMessages.map(({ event, days }) => <button onClick={() => go("calendar")} key={event.id}><span>🔔</span><div><strong>{days}일 후 일정이 있어요</strong><p>{event.title} · {event.time}</p></div><b>›</b></button>)}</section>}
     <button className="weather-card" onClick={() => go("weather")}><div><p>서울 · 맑음</p><strong>28°</strong><span>체감 30° · 자세한 예보 보기</span></div><div className="sun" aria-hidden="true">☀</div></button>
     <section className="section-block"><div className="section-title"><h2>오늘 일정</h2><button onClick={() => go("calendar")}>전체보기</button></div>{todayEvents.length > 0 ? <article className="schedule-card"><div className="time"><strong>{todayEvents[0].time}</strong><span>{Number(todayEvents[0].time.slice(0, 2)) < 12 ? "오전" : "오후"}</span></div><div className="divider"/><div><strong>{todayEvents[0].title}</strong><p>{todayEvents[0].content || (todayEvents[0].repeatYearly ? "매년 반복 일정" : "내용 없음")}</p></div></article> : <button className="empty-schedule" onClick={() => go("calendar")}>오늘 예정된 일정이 없어요 · 일정 추가</button>}</section>
@@ -222,7 +302,7 @@ function WorkView({ items, setItems }: { items: WorkItem[]; setItems: React.Disp
   return <><PageHeader title={filter === "archive" ? "업무 보관함" : "업무 메모"} action={filter === "archive" ? undefined : "＋"}/><div className="summary-strip"><div><strong>{activeCount}</strong><span>진행 중</span></div><div><strong>{doneCount}</strong><span>완료</span></div><div><strong>{keptItems.length}</strong><span>전체 업무</span></div></div><div className="filter-row work-filters"><button className={filter === "all" ? "selected" : ""} onClick={() => setFilter("all")}>전체</button><button className={filter === "active" ? "selected" : ""} onClick={() => setFilter("active")}>진행 중</button><button className={filter === "done" ? "selected" : ""} onClick={() => setFilter("done")}>완료</button><button className={filter === "archive" ? "selected" : ""} onClick={() => setFilter("archive")}>보관함</button></div>{writing && <section className="work-editor"><strong>{editingId ? "업무 메모 수정" : "새 업무 메모"}</strong><input value={title} onChange={event => setTitle(event.target.value)} placeholder="할 일 제목" autoFocus/><textarea value={details} onChange={event => setDetails(event.target.value)} placeholder="세부 내용을 적어주세요" rows={3}/><div><input value={project} onChange={event => setProject(event.target.value)} placeholder="분류"/><button className="cancel" onClick={() => { setWriting(false); setEditingId(null); }}>취소</button><button onClick={saveItem}>{editingId ? "수정 저장" : "저장"}</button></div></section>}<section className="work-feed">{visibleItems.map(item => <article className={item.completed ? "completed" : ""} key={item.id}><div className="feed-line"><span className={`status-dot ${item.completed ? "green" : "orange"}`}/><small>{item.createdAt} · {item.project}</small>{filter !== "archive" && <button className="more-button" aria-label={`${item.title} 더보기`} onClick={() => setOpenMenu(openMenu === item.id ? null : item.id)}>•••</button>}</div>{openMenu === item.id && <div className="work-menu"><strong>기록 관리</strong><p>내용을 수정하거나 안전하게 보관함으로 옮길 수 있어요.</p><div><button onClick={() => openEditItem(item)}>내용 수정</button><button onClick={() => archiveItem(item.id)}>보관함으로 이동</button></div></div>}<h3>{item.title}</h3><p>{item.details || "세부 내용 없음"}</p><ContactActions title={item.title} text={item.details}/>{filter === "archive" ? <div className="archive-actions"><button onClick={() => setItems(current => current.map(work => work.id === item.id ? { ...work, archived: false } : work))}>복구</button><button className="danger" onClick={() => permanentlyDelete(item.id)}>영구 삭제</button></div> : <div className="work-actions"><button onClick={() => setItems(current => current.map(work => work.id === item.id ? { ...work, completed: !work.completed } : work))}>{item.completed ? "↶ 다시 진행" : "✓ 완료하기"}</button></div>}</article>)}{visibleItems.length === 0 && <div className="empty-memos"><strong>{filter === "archive" ? "보관된 업무가 없어요" : "표시할 업무가 없어요"}</strong><p>{filter === "archive" ? "오래 보관할 업무 기록이 이곳에 표시됩니다." : "새 업무를 추가해 보세요."}</p></div>}</section>{filter !== "archive" && !writing && <button className="floating-button" onClick={openNewItem}>＋ 새 업무 메모</button>}</>;
 }
 
-function CalendarView({ events, setEvents }: { events: CalendarEvent[]; setEvents: React.Dispatch<React.SetStateAction<CalendarEvent[]>> }) {
+function CalendarView({ events, setEvents, openVoice }: { events: CalendarEvent[]; setEvents: React.Dispatch<React.SetStateAction<CalendarEvent[]>>; openVoice: () => void }) {
   const [selectedDate, setSelectedDate] = useState(localDateKey());
   const [visibleMonth, setVisibleMonth] = useState(() => { const now = new Date(); return new Date(now.getFullYear(), now.getMonth(), 1); });
   const [trash, setTrash] = useState(false);
@@ -294,7 +374,7 @@ function CalendarView({ events, setEvents }: { events: CalendarEvent[]; setEvent
       {selectedEvents.length === 0 && <div className="empty-memos"><strong>{trash ? "휴지통이 비어 있어요" : "이날은 일정이 없어요"}</strong><p>{trash ? "삭제한 일정이 이곳에 표시됩니다." : "새 일정을 추가해 보세요."}</p></div>}
     </section>
     {!trash && !writing && <button className="floating-button" onClick={openNewEvent}>＋ 새 일정</button>}
-    <button className="voice-button" disabled>● 음성 일정은 다음 단계에서 연결</button>
+    <button className="voice-button" onClick={openVoice}>● 음성으로 일정 말하기</button>
   </>;
 
   /* Previous calendar layout kept temporarily for migration reference.
@@ -349,6 +429,7 @@ function MoreView({ go }: { go: (tab: Tab) => void }) {
 
 export default function Home() {
   const [tab, setTab] = useState<Tab>("home");
+  const [voiceOpen, setVoiceOpen] = useState(false);
   const [memos, setMemos] = useState<Memo[]>(sampleMemos);
   const [workItems, setWorkItems] = useState<WorkItem[]>(sampleWorkItems);
   const [events, setEvents] = useState<CalendarEvent[]>(sampleEvents);
@@ -368,6 +449,13 @@ export default function Home() {
   useEffect(() => { if (storageReady) window.localStorage.setItem("my-assistant-memos", JSON.stringify(memos)); }, [memos, storageReady]);
   useEffect(() => { if (storageReady) window.localStorage.setItem("my-assistant-work", JSON.stringify(workItems)); }, [workItems, storageReady]);
   useEffect(() => { if (storageReady) window.localStorage.setItem("my-assistant-events", JSON.stringify(events)); }, [events, storageReady]);
-  const views = { home: <HomeView go={setTab} workItems={workItems} setWorkItems={setWorkItems} events={events}/>, memo: <MemoView memos={memos} setMemos={setMemos}/>, work: <WorkView items={workItems} setItems={setWorkItems}/>, calendar: <CalendarView events={events} setEvents={setEvents}/>, more: <MoreView go={setTab}/>, weather: <WeatherView back={() => setTab("more")}/> };
-  return <main className="app-shell"><section className="phone-screen"><div className="view-content" key={tab}>{views[tab]}</div><nav className="bottom-nav" aria-label="주요 메뉴">{menuItems.map(item=><button className={tab===item.id?"active":""} onClick={()=>setTab(item.id)} key={item.id}><span>{item.icon}</span>{item.label}</button>)}</nav></section></main>;
+  const saveVoiceEntry = (kind: VoiceKind, text: string, date: string, time: string) => {
+    const title = voiceTitle(text);
+    if (kind === "memo") { setMemos(current => [{ id: Date.now(), title, content: text, category: "개인", pinned: false, deleted: false, createdAt: "방금 전" }, ...current]); setTab("memo"); }
+    if (kind === "work") { setWorkItems(current => [{ id: Date.now(), title, details: text, project: "음성 입력", completed: false, createdAt: "방금 전" }, ...current]); setTab("work"); }
+    if (kind === "calendar") { setEvents(current => [...current, { id: Date.now(), title, date, time, content: text, repeatYearly: false, calendarType: "solar", reminder3Days: true, reminder1Day: true, deleted: false }]); setTab("calendar"); }
+    setVoiceOpen(false);
+  };
+  const views = { home: <HomeView go={setTab} workItems={workItems} setWorkItems={setWorkItems} events={events} openVoice={() => setVoiceOpen(true)}/>, memo: <MemoView memos={memos} setMemos={setMemos}/>, work: <WorkView items={workItems} setItems={setWorkItems}/>, calendar: <CalendarView events={events} setEvents={setEvents} openVoice={() => setVoiceOpen(true)}/>, more: <MoreView go={setTab}/>, weather: <WeatherView back={() => setTab("more")}/> };
+  return <main className="app-shell"><section className="phone-screen"><div className="view-content" key={tab}>{views[tab]}</div><nav className="bottom-nav" aria-label="주요 메뉴">{menuItems.map(item=><button className={tab===item.id?"active":""} onClick={()=>setTab(item.id)} key={item.id}><span>{item.icon}</span>{item.label}</button>)}</nav>{voiceOpen && <VoiceCapture close={() => setVoiceOpen(false)} save={saveVoiceEntry}/>}</section></main>;
 }
