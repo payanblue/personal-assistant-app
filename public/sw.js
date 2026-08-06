@@ -1,5 +1,5 @@
 const CACHE_NAME = "personal-assistant-v1";
-const APP_SHELL = ["/"];
+const APP_SHELL = ["./"];
 
 self.addEventListener("install", event => {
   event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(APP_SHELL)));
@@ -18,5 +18,5 @@ self.addEventListener("fetch", event => {
   event.respondWith(fetch(event.request).then(response => {
     if (response.ok) caches.open(CACHE_NAME).then(cache => cache.put(event.request, response.clone()));
     return response;
-  }).catch(async () => (await caches.match(event.request)) || (event.request.mode === "navigate" ? caches.match("/") : Response.error())));
+  }).catch(async () => (await caches.match(event.request)) || (event.request.mode === "navigate" ? caches.match("./") : Response.error())));
 });

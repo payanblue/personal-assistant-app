@@ -15,8 +15,8 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "나의 비서",
   description: "메모, 업무, 일정과 날씨를 가볍게 관리하는 개인비서",
-  manifest: "/manifest.webmanifest",
-  icons: { icon: "/assistant-icon.svg", apple: "/assistant-icon.svg" },
+  manifest: `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/manifest.webmanifest`,
+  icons: { icon: `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/assistant-icon.svg`, apple: `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/assistant-icon.svg` },
   appleWebApp: { capable: true, statusBarStyle: "default", title: "나의 비서" },
 };
 

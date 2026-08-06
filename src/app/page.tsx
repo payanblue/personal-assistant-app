@@ -21,11 +21,14 @@ type SpeechRecognitionLike = {
 };
 
 type SpeechRecognitionConstructor = new () => SpeechRecognitionLike;
+type GoogleTokenResponse = { access_token?: string; error?: string; error_description?: string };
+type GoogleTokenClient = { requestAccessToken: (options?: { prompt?: string }) => void };
 
 declare global {
   interface Window {
     SpeechRecognition?: SpeechRecognitionConstructor;
     webkitSpeechRecognition?: SpeechRecognitionConstructor;
+    google?: { accounts: { oauth2: { initTokenClient: (config: { client_id: string; scope: string; callback: (response: GoogleTokenResponse) => void }) => GoogleTokenClient } } };
   }
 }
 
@@ -98,6 +101,8 @@ type CalendarEvent = {
   calendarType: "solar" | "lunar";
   reminder3Days: boolean;
   reminder1Day: boolean;
+  googleEventId?: string;
+  googleEventUrl?: string;
   deleted?: boolean;
 };
 
@@ -126,8 +131,25 @@ function normalizeCalendarEvent(event: CalendarEvent & { duration?: string; cate
     calendarType: event.calendarType ?? "solar",
     reminder3Days: Boolean(event.reminder3Days),
     reminder1Day: Boolean(event.reminder1Day),
+    googleEventId: event.googleEventId,
+    googleEventUrl: event.googleEventUrl,
     deleted: Boolean(event.deleted),
   };
+}
+
+let googleIdentityPromise: Promise<void> | null = null;
+function loadGoogleIdentity() {
+  if (window.google) return Promise.resolve();
+  if (googleIdentityPromise) return googleIdentityPromise;
+  googleIdentityPromise = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = "https://accounts.google.com/gsi/client";
+    script.async = true;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error("Google Identity load failed"));
+    document.head.appendChild(script);
+  });
+  return googleIdentityPromise;
 }
 
 function localDateKey(date = new Date()) {
@@ -341,6 +363,10 @@ function CalendarView({ events, setEvents, openVoice }: { events: CalendarEvent[
   const [calendarType, setCalendarType] = useState<"solar" | "lunar">("solar");
   const [reminder3Days, setReminder3Days] = useState(true);
   const [reminder1Day, setReminder1Day] = useState(true);
+  const [googleToken, setGoogleToken] = useState("");
+  const [googleStatus, setGoogleStatus] = useState("");
+  const [syncingId, setSyncingId] = useState<number | null>(null);
+  const googleClientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
   const year = visibleMonth.getFullYear();
   const month = visibleMonth.getMonth();
   const startDay = new Date(year, month, 1).getDay();
@@ -363,12 +389,57 @@ function CalendarView({ events, setEvents, openVoice }: { events: CalendarEvent[
     setWriting(false);
     setEditingId(null);
   };
+  const connectGoogleCalendar = async () => {
+    if (!googleClientId) { setGoogleStatus("Google 연결을 사용하려면 앱 인증값 설정이 한 번 필요해요."); return; }
+    try {
+      await loadGoogleIdentity();
+      const client = window.google?.accounts.oauth2.initTokenClient({
+        client_id: googleClientId,
+        scope: "https://www.googleapis.com/auth/calendar.events",
+        callback: response => {
+          if (response.access_token) { setGoogleToken(response.access_token); setGoogleStatus("Google Calendar에 연결됐어요."); }
+          else setGoogleStatus(response.error_description || "Google 연결을 완료하지 못했어요.");
+        },
+      });
+      client?.requestAccessToken({ prompt: "consent" });
+    } catch { setGoogleStatus("Google 연결 화면을 불러오지 못했어요. 인터넷 연결을 확인해 주세요."); }
+  };
+  const syncEventToGoogle = async (event: CalendarEvent) => {
+    if (!googleToken) { setGoogleStatus("먼저 Google Calendar 연결을 눌러 주세요."); return; }
+    setSyncingId(event.id);
+    setGoogleStatus("");
+    const occurrenceDate = event.repeatYearly ? nextOccurrence(event) : event.date;
+    if (!occurrenceDate) { setGoogleStatus("지난 일정은 Google Calendar로 보낼 수 없어요."); setSyncingId(null); return; }
+    const startDateTime = `${occurrenceDate}T${event.time}:00+09:00`;
+    const end = new Date(startDateTime);
+    end.setMinutes(end.getMinutes() + 30);
+    const reminders = [{ enabled: event.reminder3Days, minutes: 3 * 24 * 60 }, { enabled: event.reminder1Day, minutes: 24 * 60 }].filter(item => item.enabled).map(item => ({ method: "popup", minutes: item.minutes }));
+    const resource: Record<string, unknown> = {
+      summary: event.title,
+      description: `${event.content || ""}\n\n나의 비서 앱에서 등록`,
+      start: { dateTime: startDateTime, timeZone: "Asia/Seoul" },
+      end: { dateTime: end.toISOString(), timeZone: "Asia/Seoul" },
+      reminders: { useDefault: false, overrides: reminders },
+    };
+    if (event.repeatYearly && event.calendarType === "solar") resource.recurrence = ["RRULE:FREQ=YEARLY"];
+    try {
+      const response = await fetch("https://www.googleapis.com/calendar/v3/calendars/primary/events", { method: "POST", headers: { Authorization: `Bearer ${googleToken}`, "Content-Type": "application/json" }, body: JSON.stringify(resource) });
+      if (!response.ok) throw new Error(response.status === 401 ? "expired" : "failed");
+      const created = await response.json() as { id: string; htmlLink?: string };
+      setEvents(current => current.map(item => item.id === event.id ? { ...item, googleEventId: created.id, googleEventUrl: created.htmlLink } : item));
+      setGoogleStatus(event.repeatYearly && event.calendarType === "lunar" ? "음력 반복은 올해 계산된 날짜를 Google Calendar에 추가했어요." : "Google Calendar에 일정을 추가했어요.");
+    } catch (error) {
+      if (error instanceof Error && error.message === "expired") { setGoogleToken(""); setGoogleStatus("Google 연결 시간이 끝났어요. 다시 연결해 주세요."); }
+      else setGoogleStatus("Google Calendar에 보내지 못했어요. 잠시 후 다시 시도해 주세요.");
+    } finally { setSyncingId(null); }
+  };
   const moveToTrash = (id: number) => { if (window.confirm("이 일정을 휴지통으로 이동할까요? 휴지통에서 복구할 수 있습니다.")) setEvents(current => current.map(event => event.id === id ? { ...event, deleted: true } : event)); };
   const changeMonth = (amount: number) => setVisibleMonth(current => new Date(current.getFullYear(), current.getMonth() + amount, 1));
 
   return <>
     <PageHeader title={trash ? "일정 휴지통" : "일정"} action={trash ? undefined : "＋"}/>
     <div className="filter-row"><button className={!trash ? "selected" : ""} onClick={() => setTrash(false)}>일정 보기</button><button className={trash ? "selected" : ""} onClick={() => setTrash(true)}>휴지통</button></div>
+    {!trash && <section className="google-calendar-bar"><div><span>G</span><p><strong>Google Calendar</strong><small>{googleToken ? "연결됨 · 일정을 선택해서 전송" : "연결하면 휴대폰에서도 일정 메시지를 받을 수 있어요"}</small></p></div><button onClick={googleToken ? () => { setGoogleToken(""); setGoogleStatus("연결을 해제했어요."); } : connectGoogleCalendar}>{googleToken ? "연결 해제" : "연결"}</button>{googleStatus && <p className="google-status">{googleStatus}</p>}</section>}
     {!trash && <section className="month-card">
       <div className="month-title"><button onClick={() => changeMonth(-1)}>‹</button><strong>{year}년 {month + 1}월</strong><button onClick={() => changeMonth(1)}>›</button></div>
       <div className="weekdays">{["일","월","화","수","목","금","토"].map(day => <span key={day}>{day}</span>)}</div>
@@ -395,7 +466,7 @@ function CalendarView({ events, setEvents, openVoice }: { events: CalendarEvent[
     </section>}
     <section className="section-block calendar-list">
       <div className="section-title"><h2>{trash ? "삭제한 일정" : `${Number(selectedDate.slice(5, 7))}월 ${Number(selectedDate.slice(8, 10))}일 일정`}</h2><span className="count">{selectedEvents.length}개</span></div>
-      {selectedEvents.map(event => <article className="schedule-card" key={event.id}><div className="time"><strong>{event.time}</strong><span>{Number(event.time.slice(0, 2)) < 12 ? "오전" : "오후"}</span></div><div className="divider"/><div className="event-info"><strong>{event.title}</strong><p>{event.content || "내용 없음"}</p><div className="event-badges">{event.repeatYearly && <span>매년 · {event.calendarType === "lunar" ? "음력" : "양력"}</span>}{event.reminder3Days && <span>3일 전 메시지</span>}{event.reminder1Day && <span>1일 전 메시지</span>}</div><div>{trash ? <><button onClick={() => setEvents(current => current.map(item => item.id === event.id ? { ...item, deleted: false } : item))}>복구</button><button className="danger" onClick={() => { if (window.confirm("이 일정을 영구 삭제할까요?")) setEvents(current => current.filter(item => item.id !== event.id)); }}>영구 삭제</button></> : <><button onClick={() => openEditEvent(event)}>수정</button><button onClick={() => moveToTrash(event.id)}>삭제</button></>}</div></div></article>)}
+      {selectedEvents.map(event => <article className="schedule-card" key={event.id}><div className="time"><strong>{event.time}</strong><span>{Number(event.time.slice(0, 2)) < 12 ? "오전" : "오후"}</span></div><div className="divider"/><div className="event-info"><strong>{event.title}</strong><p>{event.content || "내용 없음"}</p><div className="event-badges">{event.repeatYearly && <span>매년 · {event.calendarType === "lunar" ? "음력" : "양력"}</span>}{event.reminder3Days && <span>3일 전 메시지</span>}{event.reminder1Day && <span>1일 전 메시지</span>}{event.googleEventId && <span>Google 저장됨</span>}</div><div>{trash ? <><button onClick={() => setEvents(current => current.map(item => item.id === event.id ? { ...item, deleted: false } : item))}>복구</button><button className="danger" onClick={() => { if (window.confirm("이 일정을 영구 삭제할까요?")) setEvents(current => current.filter(item => item.id !== event.id)); }}>영구 삭제</button></> : <>{googleToken && !event.googleEventId && <button className="google-send" disabled={syncingId === event.id} onClick={() => syncEventToGoogle(event)}>{syncingId === event.id ? "전송 중" : "Google로 보내기"}</button>}{event.googleEventUrl && <a className="google-open" href={event.googleEventUrl} target="_blank" rel="noreferrer">Google에서 보기</a>}<button onClick={() => openEditEvent(event)}>수정</button><button onClick={() => moveToTrash(event.id)}>삭제</button></>}</div></div></article>)}
       {selectedEvents.length === 0 && <div className="empty-memos"><strong>{trash ? "휴지통이 비어 있어요" : "이날은 일정이 없어요"}</strong><p>{trash ? "삭제한 일정이 이곳에 표시됩니다." : "새 일정을 추가해 보세요."}</p></div>}
     </section>
     {!trash && !writing && <button className="floating-button" onClick={openNewEvent}>＋ 새 일정</button>}
@@ -495,7 +566,7 @@ export default function Home() {
   useEffect(() => { if (storageReady) window.localStorage.setItem("my-assistant-events", JSON.stringify(events)); }, [events, storageReady]);
   useEffect(() => { if (storageReady) window.localStorage.setItem("my-assistant-weather-location", JSON.stringify(weatherLocation)); }, [weatherLocation, storageReady]);
   useEffect(() => {
-    if (process.env.NODE_ENV === "production" && "serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => undefined);
+    if (process.env.NODE_ENV === "production" && "serviceWorker" in navigator) navigator.serviceWorker.register(`${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/sw.js`).catch(() => undefined);
   }, []);
   const saveVoiceEntry = (kind: VoiceKind, text: string, date: string, time: string) => {
     const title = voiceTitle(text);
