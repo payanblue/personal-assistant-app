@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import KoreanLunarCalendar from "korean-lunar-calendar";
 
 type Tab = "home" | "memo" | "work" | "calendar" | "more" | "weather";
 
@@ -55,20 +56,83 @@ type CalendarEvent = {
   title: string;
   date: string;
   time: string;
-  duration: string;
-  category: string;
+  content: string;
+  repeatYearly: boolean;
+  calendarType: "solar" | "lunar";
+  reminder3Days: boolean;
+  reminder1Day: boolean;
   deleted?: boolean;
 };
 
 const sampleEvents: CalendarEvent[] = [
-  { id: 1, title: "프로젝트 진행 확인", date: "2026-08-06", time: "10:30", duration: "30분", category: "업무", deleted: false },
+  { id: 1, title: "프로젝트 진행 확인", date: "2026-08-06", time: "10:30", content: "진행 상황과 다음 작업 확인", repeatYearly: false, calendarType: "solar", reminder3Days: false, reminder1Day: true, deleted: false },
 ];
+
+function normalizeCalendarEvent(event: CalendarEvent & { duration?: string; category?: string }): CalendarEvent {
+  return {
+    id: event.id,
+    title: event.title,
+    date: event.date,
+    time: event.time,
+    content: event.content ?? [event.duration, event.category].filter(Boolean).join(" · "),
+    repeatYearly: Boolean(event.repeatYearly),
+    calendarType: event.calendarType ?? "solar",
+    reminder3Days: Boolean(event.reminder3Days),
+    reminder1Day: Boolean(event.reminder1Day),
+    deleted: Boolean(event.deleted),
+  };
+}
 
 function localDateKey(date = new Date()) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+function solarToLunar(dateKey: string) {
+  const [year, month, day] = dateKey.split("-").map(Number);
+  const calendar = new KoreanLunarCalendar();
+  if (!calendar.setSolarDate(year, month, day)) return null;
+  return calendar.getLunarCalendar();
+}
+
+function lunarToSolar(year: number, month: number, day: number) {
+  const calendar = new KoreanLunarCalendar();
+  if (!calendar.setLunarDate(year, month, day, false)) return null;
+  const solar = calendar.getSolarCalendar();
+  return `${solar.year}-${String(solar.month).padStart(2, "0")}-${String(solar.day).padStart(2, "0")}`;
+}
+
+function eventOccursOn(event: CalendarEvent, solarDate: string) {
+  if (!event.repeatYearly) return event.date === solarDate;
+  if (event.calendarType === "lunar") {
+    const lunar = solarToLunar(solarDate);
+    return Boolean(lunar && `${String(lunar.month).padStart(2, "0")}-${String(lunar.day).padStart(2, "0")}` === event.date.slice(5));
+  }
+  return event.date.slice(5) === solarDate.slice(5);
+}
+
+function occurrenceInYear(event: CalendarEvent, year: number) {
+  if (!event.repeatYearly) return event.date;
+  const month = Number(event.date.slice(5, 7));
+  const day = Number(event.date.slice(8, 10));
+  if (event.calendarType === "lunar") return lunarToSolar(year, month, day);
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+function nextOccurrence(event: CalendarEvent, from = new Date()) {
+  const today = localDateKey(from);
+  if (!event.repeatYearly) return event.date >= today ? event.date : null;
+  const thisYear = occurrenceInYear(event, from.getFullYear());
+  if (thisYear && thisYear >= today) return thisYear;
+  return occurrenceInYear(event, from.getFullYear() + 1);
+}
+
+function daysBetween(from: string, to: string) {
+  const start = new Date(`${from}T00:00:00`).getTime();
+  const end = new Date(`${to}T00:00:00`).getTime();
+  return Math.round((end - start) / 86400000);
 }
 
 const menuItems: { icon: string; label: string; id: Tab }[] = [
@@ -81,12 +145,22 @@ const menuItems: { icon: string; label: string; id: Tab }[] = [
 
 function HomeView({ go, workItems, setWorkItems, events }: { go: (tab: Tab) => void; workItems: WorkItem[]; setWorkItems: React.Dispatch<React.SetStateAction<WorkItem[]>>; events: CalendarEvent[] }) {
   const activeItems = workItems.filter(item => !item.completed && !item.archived);
-  const todayEvents = events.filter(event => !event.deleted && event.date === localDateKey()).sort((a, b) => a.time.localeCompare(b.time));
+  const today = localDateKey();
+  const todayEvents = events.filter(event => !event.deleted && eventOccursOn(event, today)).sort((a, b) => a.time.localeCompare(b.time));
+  const reminderMessages = events.flatMap(event => {
+    if (event.deleted) return [];
+    const occurrence = nextOccurrence(event);
+    if (!occurrence) return [];
+    const days = daysBetween(today, occurrence);
+    if ((days === 3 && event.reminder3Days) || (days === 1 && event.reminder1Day)) return [{ event, days }];
+    return [];
+  });
   return <>
     <header className="topbar"><div><p className="eyebrow">8월 6일 목요일</p><h1>좋은 아침이에요 👋</h1></div><button className="profile-button" aria-label="내 정보">나</button></header>
     <button className="quick-input" onClick={() => go("memo")}><span className="mic">●</span><span>메모나 일정을 말해보세요</span><strong>＋</strong></button>
+    {reminderMessages.length > 0 && <section className="reminder-messages" aria-label="일정 알림">{reminderMessages.map(({ event, days }) => <button onClick={() => go("calendar")} key={event.id}><span>🔔</span><div><strong>{days}일 후 일정이 있어요</strong><p>{event.title} · {event.time}</p></div><b>›</b></button>)}</section>}
     <button className="weather-card" onClick={() => go("weather")}><div><p>서울 · 맑음</p><strong>28°</strong><span>체감 30° · 자세한 예보 보기</span></div><div className="sun" aria-hidden="true">☀</div></button>
-    <section className="section-block"><div className="section-title"><h2>오늘 일정</h2><button onClick={() => go("calendar")}>전체보기</button></div>{todayEvents.length > 0 ? <article className="schedule-card"><div className="time"><strong>{todayEvents[0].time}</strong><span>{Number(todayEvents[0].time.slice(0, 2)) < 12 ? "오전" : "오후"}</span></div><div className="divider"/><div><strong>{todayEvents[0].title}</strong><p>{todayEvents[0].duration} · {todayEvents[0].category}</p></div></article> : <button className="empty-schedule" onClick={() => go("calendar")}>오늘 예정된 일정이 없어요 · 일정 추가</button>}</section>
+    <section className="section-block"><div className="section-title"><h2>오늘 일정</h2><button onClick={() => go("calendar")}>전체보기</button></div>{todayEvents.length > 0 ? <article className="schedule-card"><div className="time"><strong>{todayEvents[0].time}</strong><span>{Number(todayEvents[0].time.slice(0, 2)) < 12 ? "오전" : "오후"}</span></div><div className="divider"/><div><strong>{todayEvents[0].title}</strong><p>{todayEvents[0].content || (todayEvents[0].repeatYearly ? "매년 반복 일정" : "내용 없음")}</p></div></article> : <button className="empty-schedule" onClick={() => go("calendar")}>오늘 예정된 일정이 없어요 · 일정 추가</button>}</section>
     <section className="section-block"><div className="section-title"><h2>할 일</h2><span className="count">{activeItems.length}개 남음</span></div><div className="todo-list">{activeItems.slice(0, 2).map(item => <label key={item.id}><input type="checkbox" checked={item.completed} onChange={() => setWorkItems(items => items.map(current => current.id === item.id ? { ...current, completed: true } : current))}/> {item.title}</label>)}{activeItems.length === 0 && <button className="all-done" onClick={() => go("work")}>오늘 할 일을 모두 마쳤어요 ✓</button>}</div></section>
     <section className="shortcut-grid"><button onClick={() => go("memo")}><span>📝</span><strong>빠른 메모</strong><small>바로 기록하기</small></button><button onClick={() => go("work")}><span>✅</span><strong>업무 메모</strong><small>진행할 업무 보기</small></button></section>
   </>;
@@ -157,21 +231,75 @@ function CalendarView({ events, setEvents }: { events: CalendarEvent[]; setEvent
   const [title, setTitle] = useState("");
   const [date, setDate] = useState(selectedDate);
   const [time, setTime] = useState("09:00");
-  const [duration, setDuration] = useState("30분");
-  const [category, setCategory] = useState("개인");
+  const [content, setContent] = useState("");
+  const [repeatYearly, setRepeatYearly] = useState(false);
+  const [calendarType, setCalendarType] = useState<"solar" | "lunar">("solar");
+  const [reminder3Days, setReminder3Days] = useState(true);
+  const [reminder1Day, setReminder1Day] = useState(true);
   const year = visibleMonth.getFullYear();
   const month = visibleMonth.getMonth();
   const startDay = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const cellCount = Math.ceil((startDay + daysInMonth) / 7) * 7;
-  const selectedEvents = events.filter(event => trash ? event.deleted : !event.deleted && event.date === selectedDate).sort((a, b) => a.time.localeCompare(b.time));
-  const openNewEvent = () => { setEditingId(null); setTitle(""); setDate(selectedDate); setTime("09:00"); setDuration("30분"); setCategory("개인"); setWriting(true); };
-  const openEditEvent = (event: CalendarEvent) => { setEditingId(event.id); setTitle(event.title); setDate(event.date); setTime(event.time); setDuration(event.duration); setCategory(event.category); setWriting(true); };
-  const saveEvent = () => { if (!title.trim()) return; if (editingId) setEvents(current => current.map(event => event.id === editingId ? { ...event, title: title.trim(), date, time, duration, category } : event)); else setEvents(current => [...current, { id: Date.now(), title: title.trim(), date, time, duration, category, deleted: false }]); setSelectedDate(date); const savedDate = new Date(`${date}T12:00:00`); setVisibleMonth(new Date(savedDate.getFullYear(), savedDate.getMonth(), 1)); setWriting(false); setEditingId(null); };
+  const selectedEvents = events.filter(event => trash ? event.deleted : !event.deleted && eventOccursOn(event, selectedDate)).sort((a, b) => a.time.localeCompare(b.time));
+  const openNewEvent = () => { setEditingId(null); setTitle(""); setDate(selectedDate); setTime("09:00"); setContent(""); setRepeatYearly(false); setCalendarType("solar"); setReminder3Days(true); setReminder1Day(true); setWriting(true); };
+  const openEditEvent = (event: CalendarEvent) => { setEditingId(event.id); setTitle(event.title); setDate(event.date); setTime(event.time); setContent(event.content ?? ""); setRepeatYearly(Boolean(event.repeatYearly)); setCalendarType(event.calendarType ?? "solar"); setReminder3Days(Boolean(event.reminder3Days)); setReminder1Day(Boolean(event.reminder1Day)); setWriting(true); };
+  const saveEvent = () => {
+    if (!title.trim()) return;
+    const savedEvent = { title: title.trim(), date, time, content: content.trim(), repeatYearly, calendarType, reminder3Days, reminder1Day };
+    if (editingId) setEvents(current => current.map(event => event.id === editingId ? { ...event, ...savedEvent } : event));
+    else setEvents(current => [...current, { id: Date.now(), ...savedEvent, deleted: false }]);
+    const displayDate = repeatYearly && calendarType === "lunar" ? lunarToSolar(year, Number(date.slice(5, 7)), Number(date.slice(8, 10))) : date;
+    if (displayDate) {
+      setSelectedDate(displayDate);
+      const savedDate = new Date(`${displayDate}T12:00:00`);
+      setVisibleMonth(new Date(savedDate.getFullYear(), savedDate.getMonth(), 1));
+    }
+    setWriting(false);
+    setEditingId(null);
+  };
   const moveToTrash = (id: number) => { if (window.confirm("이 일정을 휴지통으로 이동할까요? 휴지통에서 복구할 수 있습니다.")) setEvents(current => current.map(event => event.id === id ? { ...event, deleted: true } : event)); };
   const changeMonth = (amount: number) => setVisibleMonth(current => new Date(current.getFullYear(), current.getMonth() + amount, 1));
 
+  return <>
+    <PageHeader title={trash ? "일정 휴지통" : "일정"} action={trash ? undefined : "＋"}/>
+    <div className="filter-row"><button className={!trash ? "selected" : ""} onClick={() => setTrash(false)}>일정 보기</button><button className={trash ? "selected" : ""} onClick={() => setTrash(true)}>휴지통</button></div>
+    {!trash && <section className="month-card">
+      <div className="month-title"><button onClick={() => changeMonth(-1)}>‹</button><strong>{year}년 {month + 1}월</strong><button onClick={() => changeMonth(1)}>›</button></div>
+      <div className="weekdays">{["일","월","화","수","목","금","토"].map(day => <span key={day}>{day}</span>)}</div>
+      <div className="days">{Array.from({ length: cellCount }, (_, index) => {
+        const day = index - startDay + 1;
+        if (day < 1 || day > daysInMonth) return <span key={index}/>;
+        const key = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+        const hasEvent = events.some(event => !event.deleted && eventOccursOn(event, key));
+        const lunar = solarToLunar(key);
+        const showLunar = day === 1 || day % 5 === 0;
+        return <button className={`${key === selectedDate ? "today" : ""} ${hasEvent ? "has-event" : ""}`} onClick={() => setSelectedDate(key)} key={key}><span>{day}</span>{showLunar && lunar && <small>음 {lunar.month}.{lunar.day}</small>}</button>;
+      })}</div>
+    </section>}
+    {writing && <section className="calendar-editor">
+      <strong>{editingId ? "일정 수정" : "새 일정"}</strong>
+      <label>일정 제목<input value={title} onChange={event => setTitle(event.target.value)} placeholder="예: 어머니 생신" autoFocus/></label>
+      <div className="calendar-fields"><label>{repeatYearly && calendarType === "lunar" ? "음력 날짜" : "날짜"}<input type="date" value={date} onChange={event => setDate(event.target.value)}/></label><label>시간<input type="time" value={time} onChange={event => setTime(event.target.value)}/></label></div>
+      <label>내용<textarea value={content} onChange={event => setContent(event.target.value)} placeholder="주소, 준비물, 자세한 메모 등을 길게 적을 수 있어요" rows={4}/></label>
+      <label className="check-option"><input type="checkbox" checked={repeatYearly} onChange={event => setRepeatYearly(event.target.checked)}/><span><strong>매년 반복</strong><small>생일·기념일처럼 매년 자동으로 표시</small></span></label>
+      {repeatYearly && <div className="calendar-type"><button className={calendarType === "solar" ? "selected" : ""} onClick={() => setCalendarType("solar")}>양력</button><button className={calendarType === "lunar" ? "selected" : ""} onClick={() => setCalendarType("lunar")}>음력</button></div>}
+      {repeatYearly && calendarType === "lunar" && <p className="field-help">입력한 월·일을 음력으로 계산해 매년 양력 달력에 표시해요.</p>}
+      <div className="reminder-options"><strong>메시지 알림</strong><label><input type="checkbox" checked={reminder3Days} onChange={event => setReminder3Days(event.target.checked)}/>3일 전 메시지</label><label><input type="checkbox" checked={reminder1Day} onChange={event => setReminder1Day(event.target.checked)}/>1일 전 메시지</label><small>소리는 나지 않고 앱 홈에 메시지 카드가 떠요.</small></div>
+      <footer><button className="cancel" onClick={() => setWriting(false)}>취소</button><button onClick={saveEvent}>{editingId ? "수정 저장" : "저장"}</button></footer>
+    </section>}
+    <section className="section-block calendar-list">
+      <div className="section-title"><h2>{trash ? "삭제한 일정" : `${Number(selectedDate.slice(5, 7))}월 ${Number(selectedDate.slice(8, 10))}일 일정`}</h2><span className="count">{selectedEvents.length}개</span></div>
+      {selectedEvents.map(event => <article className="schedule-card" key={event.id}><div className="time"><strong>{event.time}</strong><span>{Number(event.time.slice(0, 2)) < 12 ? "오전" : "오후"}</span></div><div className="divider"/><div className="event-info"><strong>{event.title}</strong><p>{event.content || "내용 없음"}</p><div className="event-badges">{event.repeatYearly && <span>매년 · {event.calendarType === "lunar" ? "음력" : "양력"}</span>}{event.reminder3Days && <span>3일 전 메시지</span>}{event.reminder1Day && <span>1일 전 메시지</span>}</div><div>{trash ? <><button onClick={() => setEvents(current => current.map(item => item.id === event.id ? { ...item, deleted: false } : item))}>복구</button><button className="danger" onClick={() => { if (window.confirm("이 일정을 영구 삭제할까요?")) setEvents(current => current.filter(item => item.id !== event.id)); }}>영구 삭제</button></> : <><button onClick={() => openEditEvent(event)}>수정</button><button onClick={() => moveToTrash(event.id)}>삭제</button></>}</div></div></article>)}
+      {selectedEvents.length === 0 && <div className="empty-memos"><strong>{trash ? "휴지통이 비어 있어요" : "이날은 일정이 없어요"}</strong><p>{trash ? "삭제한 일정이 이곳에 표시됩니다." : "새 일정을 추가해 보세요."}</p></div>}
+    </section>
+    {!trash && !writing && <button className="floating-button" onClick={openNewEvent}>＋ 새 일정</button>}
+    <button className="voice-button" disabled>● 음성 일정은 다음 단계에서 연결</button>
+  </>;
+
+  /* Previous calendar layout kept temporarily for migration reference.
   return <><PageHeader title={trash ? "일정 휴지통" : "일정"} action={trash ? undefined : "＋"}/><div className="filter-row"><button className={!trash ? "selected" : ""} onClick={() => setTrash(false)}>일정 보기</button><button className={trash ? "selected" : ""} onClick={() => setTrash(true)}>휴지통</button></div>{!trash && <section className="month-card"><div className="month-title"><button onClick={() => changeMonth(-1)}>‹</button><strong>{year}년 {month + 1}월</strong><button onClick={() => changeMonth(1)}>›</button></div><div className="weekdays">{["일","월","화","수","목","금","토"].map(day => <span key={day}>{day}</span>)}</div><div className="days">{Array.from({ length: cellCount }, (_, index) => { const day = index - startDay + 1; if (day < 1 || day > daysInMonth) return <span key={index}/>; const key = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`; const hasEvent = events.some(event => !event.deleted && event.date === key); return <button className={`${key === selectedDate ? "today" : ""} ${hasEvent ? "has-event" : ""}`} onClick={() => setSelectedDate(key)} key={key}>{day}</button>; })}</div></section>}{writing && <section className="calendar-editor"><strong>{editingId ? "일정 수정" : "새 일정"}</strong><input value={title} onChange={event => setTitle(event.target.value)} placeholder="일정 제목" autoFocus/><div><input type="date" value={date} onChange={event => setDate(event.target.value)}/><input type="time" value={time} onChange={event => setTime(event.target.value)}/></div><div><input value={duration} onChange={event => setDuration(event.target.value)} placeholder="소요시간"/><input value={category} onChange={event => setCategory(event.target.value)} placeholder="분류"/></div><footer><button className="cancel" onClick={() => setWriting(false)}>취소</button><button onClick={saveEvent}>{editingId ? "수정 저장" : "저장"}</button></footer></section>}<section className="section-block calendar-list"><div className="section-title"><h2>{trash ? "삭제한 일정" : `${Number(selectedDate.slice(5, 7))}월 ${Number(selectedDate.slice(8, 10))}일 일정`}</h2><span className="count">{selectedEvents.length}개</span></div>{selectedEvents.map(event => <article className="schedule-card" key={event.id}><div className="time"><strong>{event.time}</strong><span>{Number(event.time.slice(0, 2)) < 12 ? "오전" : "오후"}</span></div><div className="divider"/><div className="event-info"><strong>{event.title}</strong><p>{event.duration} · {event.category}</p><div>{trash ? <><button onClick={() => setEvents(current => current.map(item => item.id === event.id ? { ...item, deleted: false } : item))}>복구</button><button className="danger" onClick={() => { if (window.confirm("이 일정을 영구 삭제할까요?")) setEvents(current => current.filter(item => item.id !== event.id)); }}>영구 삭제</button></> : <><button onClick={() => openEditEvent(event)}>수정</button><button onClick={() => moveToTrash(event.id)}>삭제</button></>}</div></div></article>)}{selectedEvents.length === 0 && <div className="empty-memos"><strong>{trash ? "휴지통이 비어 있어요" : "이날은 일정이 없어요"}</strong><p>{trash ? "삭제한 일정이 이곳에 표시됩니다." : "새 일정을 추가해 보세요."}</p></div>}</section>{!trash && !writing && <button className="floating-button" onClick={openNewEvent}>＋ 새 일정</button>}<button className="voice-button" disabled>● 음성 일정은 다음 단계에서 연결</button></>;
+  */
 }
 
 function weatherLabel(code: number) {
@@ -221,12 +349,25 @@ function MoreView({ go }: { go: (tab: Tab) => void }) {
 
 export default function Home() {
   const [tab, setTab] = useState<Tab>("home");
-  const [memos, setMemos] = useState<Memo[]>(() => { if (typeof window === "undefined") return sampleMemos; const saved = window.localStorage.getItem("my-assistant-memos"); if (!saved) return sampleMemos; try { return JSON.parse(saved); } catch { return sampleMemos; } });
-  const [workItems, setWorkItems] = useState<WorkItem[]>(() => { if (typeof window === "undefined") return sampleWorkItems; const saved = window.localStorage.getItem("my-assistant-work"); if (!saved) return sampleWorkItems; try { return JSON.parse(saved); } catch { return sampleWorkItems; } });
-  const [events, setEvents] = useState<CalendarEvent[]>(() => { if (typeof window === "undefined") return sampleEvents; const saved = window.localStorage.getItem("my-assistant-events"); if (!saved) return sampleEvents; try { return JSON.parse(saved); } catch { return sampleEvents; } });
-  useEffect(() => { window.localStorage.setItem("my-assistant-memos", JSON.stringify(memos)); }, [memos]);
-  useEffect(() => { window.localStorage.setItem("my-assistant-work", JSON.stringify(workItems)); }, [workItems]);
-  useEffect(() => { window.localStorage.setItem("my-assistant-events", JSON.stringify(events)); }, [events]);
+  const [memos, setMemos] = useState<Memo[]>(sampleMemos);
+  const [workItems, setWorkItems] = useState<WorkItem[]>(sampleWorkItems);
+  const [events, setEvents] = useState<CalendarEvent[]>(sampleEvents);
+  const [storageReady, setStorageReady] = useState(false);
+  useEffect(() => {
+    const loadSavedData = window.setTimeout(() => {
+      const savedMemos = window.localStorage.getItem("my-assistant-memos");
+      const savedWork = window.localStorage.getItem("my-assistant-work");
+      const savedEvents = window.localStorage.getItem("my-assistant-events");
+      try { if (savedMemos) setMemos(JSON.parse(savedMemos)); } catch { /* 기본 메모 유지 */ }
+      try { if (savedWork) setWorkItems(JSON.parse(savedWork)); } catch { /* 기본 업무 유지 */ }
+      try { if (savedEvents) setEvents((JSON.parse(savedEvents) as Array<CalendarEvent & { duration?: string; category?: string }>).map(normalizeCalendarEvent)); } catch { /* 기본 일정 유지 */ }
+      setStorageReady(true);
+    }, 0);
+    return () => window.clearTimeout(loadSavedData);
+  }, []);
+  useEffect(() => { if (storageReady) window.localStorage.setItem("my-assistant-memos", JSON.stringify(memos)); }, [memos, storageReady]);
+  useEffect(() => { if (storageReady) window.localStorage.setItem("my-assistant-work", JSON.stringify(workItems)); }, [workItems, storageReady]);
+  useEffect(() => { if (storageReady) window.localStorage.setItem("my-assistant-events", JSON.stringify(events)); }, [events, storageReady]);
   const views = { home: <HomeView go={setTab} workItems={workItems} setWorkItems={setWorkItems} events={events}/>, memo: <MemoView memos={memos} setMemos={setMemos}/>, work: <WorkView items={workItems} setItems={setWorkItems}/>, calendar: <CalendarView events={events} setEvents={setEvents}/>, more: <MoreView go={setTab}/>, weather: <WeatherView back={() => setTab("more")}/> };
   return <main className="app-shell"><section className="phone-screen"><div className="view-content" key={tab}>{views[tab]}</div><nav className="bottom-nav" aria-label="주요 메뉴">{menuItems.map(item=><button className={tab===item.id?"active":""} onClick={()=>setTab(item.id)} key={item.id}><span>{item.icon}</span>{item.label}</button>)}</nav></section></main>;
 }
