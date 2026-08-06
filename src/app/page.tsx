@@ -50,6 +50,27 @@ const sampleWorkItems: WorkItem[] = [
   { id: 3, title: "거래처 담당자에게 전화", details: "수정된 일정 전달 완료", project: "연락", completed: true, createdAt: "어제" },
 ];
 
+type CalendarEvent = {
+  id: number;
+  title: string;
+  date: string;
+  time: string;
+  duration: string;
+  category: string;
+  deleted?: boolean;
+};
+
+const sampleEvents: CalendarEvent[] = [
+  { id: 1, title: "프로젝트 진행 확인", date: "2026-08-06", time: "10:30", duration: "30분", category: "업무", deleted: false },
+];
+
+function localDateKey(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 const menuItems: { icon: string; label: string; id: Tab }[] = [
   { icon: "⌂", label: "홈", id: "home" },
   { icon: "✎", label: "메모", id: "memo" },
@@ -58,13 +79,14 @@ const menuItems: { icon: string; label: string; id: Tab }[] = [
   { icon: "•••", label: "더보기", id: "more" },
 ];
 
-function HomeView({ go, workItems, setWorkItems }: { go: (tab: Tab) => void; workItems: WorkItem[]; setWorkItems: React.Dispatch<React.SetStateAction<WorkItem[]>> }) {
+function HomeView({ go, workItems, setWorkItems, events }: { go: (tab: Tab) => void; workItems: WorkItem[]; setWorkItems: React.Dispatch<React.SetStateAction<WorkItem[]>>; events: CalendarEvent[] }) {
   const activeItems = workItems.filter(item => !item.completed && !item.archived);
+  const todayEvents = events.filter(event => !event.deleted && event.date === localDateKey()).sort((a, b) => a.time.localeCompare(b.time));
   return <>
     <header className="topbar"><div><p className="eyebrow">8월 6일 목요일</p><h1>좋은 아침이에요 👋</h1></div><button className="profile-button" aria-label="내 정보">나</button></header>
     <button className="quick-input" onClick={() => go("memo")}><span className="mic">●</span><span>메모나 일정을 말해보세요</span><strong>＋</strong></button>
     <button className="weather-card" onClick={() => go("weather")}><div><p>서울 · 맑음</p><strong>28°</strong><span>체감 30° · 자세한 예보 보기</span></div><div className="sun" aria-hidden="true">☀</div></button>
-    <section className="section-block"><div className="section-title"><h2>오늘 일정</h2><button onClick={() => go("calendar")}>전체보기</button></div><article className="schedule-card"><div className="time"><strong>10:30</strong><span>오전</span></div><div className="divider"/><div><strong>프로젝트 진행 확인</strong><p>30분 · 업무</p></div></article></section>
+    <section className="section-block"><div className="section-title"><h2>오늘 일정</h2><button onClick={() => go("calendar")}>전체보기</button></div>{todayEvents.length > 0 ? <article className="schedule-card"><div className="time"><strong>{todayEvents[0].time}</strong><span>{Number(todayEvents[0].time.slice(0, 2)) < 12 ? "오전" : "오후"}</span></div><div className="divider"/><div><strong>{todayEvents[0].title}</strong><p>{todayEvents[0].duration} · {todayEvents[0].category}</p></div></article> : <button className="empty-schedule" onClick={() => go("calendar")}>오늘 예정된 일정이 없어요 · 일정 추가</button>}</section>
     <section className="section-block"><div className="section-title"><h2>할 일</h2><span className="count">{activeItems.length}개 남음</span></div><div className="todo-list">{activeItems.slice(0, 2).map(item => <label key={item.id}><input type="checkbox" checked={item.completed} onChange={() => setWorkItems(items => items.map(current => current.id === item.id ? { ...current, completed: true } : current))}/> {item.title}</label>)}{activeItems.length === 0 && <button className="all-done" onClick={() => go("work")}>오늘 할 일을 모두 마쳤어요 ✓</button>}</div></section>
     <section className="shortcut-grid"><button onClick={() => go("memo")}><span>📝</span><strong>빠른 메모</strong><small>바로 기록하기</small></button><button onClick={() => go("work")}><span>✅</span><strong>업무 메모</strong><small>진행할 업무 보기</small></button></section>
   </>;
@@ -75,19 +97,12 @@ function PageHeader({ title, action }: { title: string; action?: string }) {
 }
 
 function ContactActions({ title, text }: { title: string; text: string }) {
+  void title;
   const [copied, setCopied] = useState("");
   const pattern = /(?:\+82[-.\s]?)?(?:0?10|0?11|0?16|0?17|0?18|0?19|0?2|0?3[1-3]|0?4[1-4]|0?5[1-5]|0?6[1-4]|0?70|0?80)[-.\s]?\d{3,4}[-.\s]?\d{4}/g;
   const numbers = [...new Set(text.match(pattern) ?? [])];
   if (numbers.length === 0) return null;
-  const saveContact = (number: string) => {
-    const safeTitle = title.replace(/[\r\n:;]/g, " ");
-    const cleanNumber = number.replace(/[^+\d]/g, "");
-    const card = `BEGIN:VCARD\r\nVERSION:3.0\r\nFN:${safeTitle}\r\nTEL;TYPE=CELL:${cleanNumber}\r\nEND:VCARD\r\n`;
-    const url = URL.createObjectURL(new Blob([card], { type: "text/vcard;charset=utf-8" }));
-    const link = document.createElement("a");
-    link.href = url; link.download = `${safeTitle || "연락처"}.vcf`; link.click(); URL.revokeObjectURL(url);
-  };
-  return <div className="contact-list">{numbers.map(number => { const cleanNumber = number.replace(/[^+\d]/g, ""); return <div className="contact-actions" key={number}><strong>☎ {number}</strong><div><a href={`tel:${cleanNumber}`}>전화</a><a href={`sms:${cleanNumber}`}>문자</a><button onClick={async () => { await navigator.clipboard.writeText(number); setCopied(number); }}>{copied === number ? "복사됨" : "복사"}</button><button onClick={() => saveContact(number)}>연락처 저장</button></div></div>})}</div>;
+  return <div className="contact-list">{numbers.map(number => { const cleanNumber = number.replace(/[^+\d]/g, ""); return <div className="contact-actions" key={number}><strong>☎ {number}</strong><div><a href={`tel:${cleanNumber}`}>전화</a><a href={`sms:${cleanNumber}`}>문자</a><button onClick={async () => { await navigator.clipboard.writeText(number); setCopied(number); }}>{copied === number ? "복사됨" : "복사"}</button></div></div>})}</div>;
 }
 
 function MemoView({ memos, setMemos }: { memos: Memo[]; setMemos: React.Dispatch<React.SetStateAction<Memo[]>> }) {
@@ -133,8 +148,30 @@ function WorkView({ items, setItems }: { items: WorkItem[]; setItems: React.Disp
   return <><PageHeader title={filter === "archive" ? "업무 보관함" : "업무 메모"} action={filter === "archive" ? undefined : "＋"}/><div className="summary-strip"><div><strong>{activeCount}</strong><span>진행 중</span></div><div><strong>{doneCount}</strong><span>완료</span></div><div><strong>{keptItems.length}</strong><span>전체 업무</span></div></div><div className="filter-row work-filters"><button className={filter === "all" ? "selected" : ""} onClick={() => setFilter("all")}>전체</button><button className={filter === "active" ? "selected" : ""} onClick={() => setFilter("active")}>진행 중</button><button className={filter === "done" ? "selected" : ""} onClick={() => setFilter("done")}>완료</button><button className={filter === "archive" ? "selected" : ""} onClick={() => setFilter("archive")}>보관함</button></div>{writing && <section className="work-editor"><strong>{editingId ? "업무 메모 수정" : "새 업무 메모"}</strong><input value={title} onChange={event => setTitle(event.target.value)} placeholder="할 일 제목" autoFocus/><textarea value={details} onChange={event => setDetails(event.target.value)} placeholder="세부 내용을 적어주세요" rows={3}/><div><input value={project} onChange={event => setProject(event.target.value)} placeholder="분류"/><button className="cancel" onClick={() => { setWriting(false); setEditingId(null); }}>취소</button><button onClick={saveItem}>{editingId ? "수정 저장" : "저장"}</button></div></section>}<section className="work-feed">{visibleItems.map(item => <article className={item.completed ? "completed" : ""} key={item.id}><div className="feed-line"><span className={`status-dot ${item.completed ? "green" : "orange"}`}/><small>{item.createdAt} · {item.project}</small>{filter !== "archive" && <button className="more-button" aria-label={`${item.title} 더보기`} onClick={() => setOpenMenu(openMenu === item.id ? null : item.id)}>•••</button>}</div>{openMenu === item.id && <div className="work-menu"><strong>기록 관리</strong><p>내용을 수정하거나 안전하게 보관함으로 옮길 수 있어요.</p><div><button onClick={() => openEditItem(item)}>내용 수정</button><button onClick={() => archiveItem(item.id)}>보관함으로 이동</button></div></div>}<h3>{item.title}</h3><p>{item.details || "세부 내용 없음"}</p><ContactActions title={item.title} text={item.details}/>{filter === "archive" ? <div className="archive-actions"><button onClick={() => setItems(current => current.map(work => work.id === item.id ? { ...work, archived: false } : work))}>복구</button><button className="danger" onClick={() => permanentlyDelete(item.id)}>영구 삭제</button></div> : <div className="work-actions"><button onClick={() => setItems(current => current.map(work => work.id === item.id ? { ...work, completed: !work.completed } : work))}>{item.completed ? "↶ 다시 진행" : "✓ 완료하기"}</button></div>}</article>)}{visibleItems.length === 0 && <div className="empty-memos"><strong>{filter === "archive" ? "보관된 업무가 없어요" : "표시할 업무가 없어요"}</strong><p>{filter === "archive" ? "오래 보관할 업무 기록이 이곳에 표시됩니다." : "새 업무를 추가해 보세요."}</p></div>}</section>{filter !== "archive" && !writing && <button className="floating-button" onClick={openNewItem}>＋ 새 업무 메모</button>}</>;
 }
 
-function CalendarView() {
-  return <><PageHeader title="일정" action="＋"/><section className="month-card"><div className="month-title"><button>‹</button><strong>2026년 8월</strong><button>›</button></div><div className="weekdays">{["일","월","화","수","목","금","토"].map(d=><span key={d}>{d}</span>)}</div><div className="days">{Array.from({length:35},(_,i)=>{const n=i-4; return <button className={n===6?"today":n<1||n>31?"empty":""} key={i}>{n>0&&n<32?n:""}</button>})}</div></section><section className="section-block"><div className="section-title"><h2>8월 6일 일정</h2><span className="count">1개</span></div><article className="schedule-card"><div className="time"><strong>10:30</strong><span>오전</span></div><div className="divider"/><div><strong>프로젝트 진행 확인</strong><p>알림 10분 전 · 업무</p></div></article></section><button className="voice-button">● 음성으로 일정 추가</button></>;
+function CalendarView({ events, setEvents }: { events: CalendarEvent[]; setEvents: React.Dispatch<React.SetStateAction<CalendarEvent[]>> }) {
+  const [selectedDate, setSelectedDate] = useState(localDateKey());
+  const [visibleMonth, setVisibleMonth] = useState(() => { const now = new Date(); return new Date(now.getFullYear(), now.getMonth(), 1); });
+  const [trash, setTrash] = useState(false);
+  const [writing, setWriting] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [title, setTitle] = useState("");
+  const [date, setDate] = useState(selectedDate);
+  const [time, setTime] = useState("09:00");
+  const [duration, setDuration] = useState("30분");
+  const [category, setCategory] = useState("개인");
+  const year = visibleMonth.getFullYear();
+  const month = visibleMonth.getMonth();
+  const startDay = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const cellCount = Math.ceil((startDay + daysInMonth) / 7) * 7;
+  const selectedEvents = events.filter(event => trash ? event.deleted : !event.deleted && event.date === selectedDate).sort((a, b) => a.time.localeCompare(b.time));
+  const openNewEvent = () => { setEditingId(null); setTitle(""); setDate(selectedDate); setTime("09:00"); setDuration("30분"); setCategory("개인"); setWriting(true); };
+  const openEditEvent = (event: CalendarEvent) => { setEditingId(event.id); setTitle(event.title); setDate(event.date); setTime(event.time); setDuration(event.duration); setCategory(event.category); setWriting(true); };
+  const saveEvent = () => { if (!title.trim()) return; if (editingId) setEvents(current => current.map(event => event.id === editingId ? { ...event, title: title.trim(), date, time, duration, category } : event)); else setEvents(current => [...current, { id: Date.now(), title: title.trim(), date, time, duration, category, deleted: false }]); setSelectedDate(date); const savedDate = new Date(`${date}T12:00:00`); setVisibleMonth(new Date(savedDate.getFullYear(), savedDate.getMonth(), 1)); setWriting(false); setEditingId(null); };
+  const moveToTrash = (id: number) => { if (window.confirm("이 일정을 휴지통으로 이동할까요? 휴지통에서 복구할 수 있습니다.")) setEvents(current => current.map(event => event.id === id ? { ...event, deleted: true } : event)); };
+  const changeMonth = (amount: number) => setVisibleMonth(current => new Date(current.getFullYear(), current.getMonth() + amount, 1));
+
+  return <><PageHeader title={trash ? "일정 휴지통" : "일정"} action={trash ? undefined : "＋"}/><div className="filter-row"><button className={!trash ? "selected" : ""} onClick={() => setTrash(false)}>일정 보기</button><button className={trash ? "selected" : ""} onClick={() => setTrash(true)}>휴지통</button></div>{!trash && <section className="month-card"><div className="month-title"><button onClick={() => changeMonth(-1)}>‹</button><strong>{year}년 {month + 1}월</strong><button onClick={() => changeMonth(1)}>›</button></div><div className="weekdays">{["일","월","화","수","목","금","토"].map(day => <span key={day}>{day}</span>)}</div><div className="days">{Array.from({ length: cellCount }, (_, index) => { const day = index - startDay + 1; if (day < 1 || day > daysInMonth) return <span key={index}/>; const key = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`; const hasEvent = events.some(event => !event.deleted && event.date === key); return <button className={`${key === selectedDate ? "today" : ""} ${hasEvent ? "has-event" : ""}`} onClick={() => setSelectedDate(key)} key={key}>{day}</button>; })}</div></section>}{writing && <section className="calendar-editor"><strong>{editingId ? "일정 수정" : "새 일정"}</strong><input value={title} onChange={event => setTitle(event.target.value)} placeholder="일정 제목" autoFocus/><div><input type="date" value={date} onChange={event => setDate(event.target.value)}/><input type="time" value={time} onChange={event => setTime(event.target.value)}/></div><div><input value={duration} onChange={event => setDuration(event.target.value)} placeholder="소요시간"/><input value={category} onChange={event => setCategory(event.target.value)} placeholder="분류"/></div><footer><button className="cancel" onClick={() => setWriting(false)}>취소</button><button onClick={saveEvent}>{editingId ? "수정 저장" : "저장"}</button></footer></section>}<section className="section-block calendar-list"><div className="section-title"><h2>{trash ? "삭제한 일정" : `${Number(selectedDate.slice(5, 7))}월 ${Number(selectedDate.slice(8, 10))}일 일정`}</h2><span className="count">{selectedEvents.length}개</span></div>{selectedEvents.map(event => <article className="schedule-card" key={event.id}><div className="time"><strong>{event.time}</strong><span>{Number(event.time.slice(0, 2)) < 12 ? "오전" : "오후"}</span></div><div className="divider"/><div className="event-info"><strong>{event.title}</strong><p>{event.duration} · {event.category}</p><div>{trash ? <><button onClick={() => setEvents(current => current.map(item => item.id === event.id ? { ...item, deleted: false } : item))}>복구</button><button className="danger" onClick={() => { if (window.confirm("이 일정을 영구 삭제할까요?")) setEvents(current => current.filter(item => item.id !== event.id)); }}>영구 삭제</button></> : <><button onClick={() => openEditEvent(event)}>수정</button><button onClick={() => moveToTrash(event.id)}>삭제</button></>}</div></div></article>)}{selectedEvents.length === 0 && <div className="empty-memos"><strong>{trash ? "휴지통이 비어 있어요" : "이날은 일정이 없어요"}</strong><p>{trash ? "삭제한 일정이 이곳에 표시됩니다." : "새 일정을 추가해 보세요."}</p></div>}</section>{!trash && !writing && <button className="floating-button" onClick={openNewEvent}>＋ 새 일정</button>}<button className="voice-button" disabled>● 음성 일정은 다음 단계에서 연결</button></>;
 }
 
 function weatherLabel(code: number) {
@@ -186,8 +223,10 @@ export default function Home() {
   const [tab, setTab] = useState<Tab>("home");
   const [memos, setMemos] = useState<Memo[]>(() => { if (typeof window === "undefined") return sampleMemos; const saved = window.localStorage.getItem("my-assistant-memos"); if (!saved) return sampleMemos; try { return JSON.parse(saved); } catch { return sampleMemos; } });
   const [workItems, setWorkItems] = useState<WorkItem[]>(() => { if (typeof window === "undefined") return sampleWorkItems; const saved = window.localStorage.getItem("my-assistant-work"); if (!saved) return sampleWorkItems; try { return JSON.parse(saved); } catch { return sampleWorkItems; } });
+  const [events, setEvents] = useState<CalendarEvent[]>(() => { if (typeof window === "undefined") return sampleEvents; const saved = window.localStorage.getItem("my-assistant-events"); if (!saved) return sampleEvents; try { return JSON.parse(saved); } catch { return sampleEvents; } });
   useEffect(() => { window.localStorage.setItem("my-assistant-memos", JSON.stringify(memos)); }, [memos]);
   useEffect(() => { window.localStorage.setItem("my-assistant-work", JSON.stringify(workItems)); }, [workItems]);
-  const views = { home: <HomeView go={setTab} workItems={workItems} setWorkItems={setWorkItems}/>, memo: <MemoView memos={memos} setMemos={setMemos}/>, work: <WorkView items={workItems} setItems={setWorkItems}/>, calendar: <CalendarView/>, more: <MoreView go={setTab}/>, weather: <WeatherView back={() => setTab("more")}/> };
+  useEffect(() => { window.localStorage.setItem("my-assistant-events", JSON.stringify(events)); }, [events]);
+  const views = { home: <HomeView go={setTab} workItems={workItems} setWorkItems={setWorkItems} events={events}/>, memo: <MemoView memos={memos} setMemos={setMemos}/>, work: <WorkView items={workItems} setItems={setWorkItems}/>, calendar: <CalendarView events={events} setEvents={setEvents}/>, more: <MoreView go={setTab}/>, weather: <WeatherView back={() => setTab("more")}/> };
   return <main className="app-shell"><section className="phone-screen"><div className="view-content" key={tab}>{views[tab]}</div><nav className="bottom-nav" aria-label="주요 메뉴">{menuItems.map(item=><button className={tab===item.id?"active":""} onClick={()=>setTab(item.id)} key={item.id}><span>{item.icon}</span>{item.label}</button>)}</nav></section></main>;
 }
