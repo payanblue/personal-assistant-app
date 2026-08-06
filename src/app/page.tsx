@@ -40,6 +40,7 @@ type WorkItem = {
   details: string;
   project: string;
   completed: boolean;
+  archived?: boolean;
   createdAt: string;
 };
 
@@ -58,7 +59,7 @@ const menuItems: { icon: string; label: string; id: Tab }[] = [
 ];
 
 function HomeView({ go, workItems, setWorkItems }: { go: (tab: Tab) => void; workItems: WorkItem[]; setWorkItems: React.Dispatch<React.SetStateAction<WorkItem[]>> }) {
-  const activeItems = workItems.filter(item => !item.completed);
+  const activeItems = workItems.filter(item => !item.completed && !item.archived);
   return <>
     <header className="topbar"><div><p className="eyebrow">8월 6일 목요일</p><h1>좋은 아침이에요 👋</h1></div><button className="profile-button" aria-label="내 정보">나</button></header>
     <button className="quick-input" onClick={() => go("memo")}><span className="mic">●</span><span>메모나 일정을 말해보세요</span><strong>＋</strong></button>
@@ -96,16 +97,21 @@ function MemoView({ memos, setMemos }: { memos: Memo[]; setMemos: React.Dispatch
 }
 
 function WorkView({ items, setItems }: { items: WorkItem[]; setItems: React.Dispatch<React.SetStateAction<WorkItem[]>> }) {
-  const [filter, setFilter] = useState<"all" | "active" | "done">("all");
+  const [filter, setFilter] = useState<"all" | "active" | "done" | "archive">("all");
   const [writing, setWriting] = useState(false);
+  const [openMenu, setOpenMenu] = useState<number | null>(null);
   const [title, setTitle] = useState("");
   const [details, setDetails] = useState("");
   const [project, setProject] = useState("업무");
-  const activeCount = items.filter(item => !item.completed).length;
-  const doneCount = items.filter(item => item.completed).length;
-  const visibleItems = items.filter(item => filter === "all" || (filter === "done" ? item.completed : !item.completed));
-  const saveItem = () => { if (!title.trim()) return; setItems(current => [{ id: Date.now(), title: title.trim(), details: details.trim(), project: project.trim() || "업무", completed: false, createdAt: "방금 전" }, ...current]); setTitle(""); setDetails(""); setProject("업무"); setWriting(false); };
-  return <><PageHeader title="업무 메모" action="＋"/><div className="summary-strip"><div><strong>{activeCount}</strong><span>진행 중</span></div><div><strong>{doneCount}</strong><span>완료</span></div><div><strong>{items.length}</strong><span>전체 업무</span></div></div><div className="filter-row"><button className={filter === "all" ? "selected" : ""} onClick={() => setFilter("all")}>전체</button><button className={filter === "active" ? "selected" : ""} onClick={() => setFilter("active")}>진행 중</button><button className={filter === "done" ? "selected" : ""} onClick={() => setFilter("done")}>완료</button></div>{writing && <section className="work-editor"><input value={title} onChange={event => setTitle(event.target.value)} placeholder="할 일 제목" autoFocus/><textarea value={details} onChange={event => setDetails(event.target.value)} placeholder="세부 내용을 적어주세요" rows={3}/><div><input value={project} onChange={event => setProject(event.target.value)} placeholder="분류"/><button className="cancel" onClick={() => setWriting(false)}>취소</button><button onClick={saveItem}>저장</button></div></section>}<section className="work-feed">{visibleItems.map(item => <article className={item.completed ? "completed" : ""} key={item.id}><div className="feed-line"><span className={`status-dot ${item.completed ? "green" : "orange"}`}/><small>{item.createdAt} · {item.project}</small></div><h3>{item.title}</h3><p>{item.details || "세부 내용 없음"}</p><div className="work-actions"><button onClick={() => setItems(current => current.map(work => work.id === item.id ? { ...work, completed: !work.completed } : work))}>{item.completed ? "↶ 다시 진행" : "✓ 완료하기"}</button><button className="danger" onClick={() => setItems(current => current.filter(work => work.id !== item.id))}>삭제</button></div></article>)}{visibleItems.length === 0 && <div className="empty-memos"><strong>표시할 업무가 없어요</strong><p>새 업무를 추가해 보세요.</p></div>}</section>{!writing && <button className="floating-button" onClick={() => setWriting(true)}>＋ 새 업무 메모</button>}</>;
+  const keptItems = items.filter(item => !item.archived);
+  const activeCount = keptItems.filter(item => !item.completed).length;
+  const doneCount = keptItems.filter(item => item.completed).length;
+  const visibleItems = items.filter(item => filter === "archive" ? item.archived : !item.archived && (filter === "all" || (filter === "done" ? item.completed : !item.completed)));
+  const saveItem = () => { if (!title.trim()) return; setItems(current => [{ id: Date.now(), title: title.trim(), details: details.trim(), project: project.trim() || "업무", completed: false, archived: false, createdAt: "방금 전" }, ...current]); setTitle(""); setDetails(""); setProject("업무"); setWriting(false); };
+  const archiveItem = (id: number) => { if (window.confirm("이 업무 메모를 보관함으로 이동할까요? 기록은 삭제되지 않습니다.")) { setItems(current => current.map(item => item.id === id ? { ...item, archived: true } : item)); setOpenMenu(null); } };
+  const permanentlyDelete = (id: number) => { if (window.confirm("이 업무 기록을 영구 삭제할까요? 이 작업은 되돌릴 수 없습니다.")) setItems(current => current.filter(item => item.id !== id)); };
+
+  return <><PageHeader title={filter === "archive" ? "업무 보관함" : "업무 메모"} action={filter === "archive" ? undefined : "＋"}/><div className="summary-strip"><div><strong>{activeCount}</strong><span>진행 중</span></div><div><strong>{doneCount}</strong><span>완료</span></div><div><strong>{keptItems.length}</strong><span>전체 업무</span></div></div><div className="filter-row work-filters"><button className={filter === "all" ? "selected" : ""} onClick={() => setFilter("all")}>전체</button><button className={filter === "active" ? "selected" : ""} onClick={() => setFilter("active")}>진행 중</button><button className={filter === "done" ? "selected" : ""} onClick={() => setFilter("done")}>완료</button><button className={filter === "archive" ? "selected" : ""} onClick={() => setFilter("archive")}>보관함</button></div>{writing && <section className="work-editor"><input value={title} onChange={event => setTitle(event.target.value)} placeholder="할 일 제목" autoFocus/><textarea value={details} onChange={event => setDetails(event.target.value)} placeholder="세부 내용을 적어주세요" rows={3}/><div><input value={project} onChange={event => setProject(event.target.value)} placeholder="분류"/><button className="cancel" onClick={() => setWriting(false)}>취소</button><button onClick={saveItem}>저장</button></div></section>}<section className="work-feed">{visibleItems.map(item => <article className={item.completed ? "completed" : ""} key={item.id}><div className="feed-line"><span className={`status-dot ${item.completed ? "green" : "orange"}`}/><small>{item.createdAt} · {item.project}</small>{filter !== "archive" && <button className="more-button" aria-label={`${item.title} 더보기`} onClick={() => setOpenMenu(openMenu === item.id ? null : item.id)}>•••</button>}</div>{openMenu === item.id && <div className="work-menu"><strong>기록 관리</strong><p>바로 삭제하지 않고 보관함으로 옮깁니다.</p><button onClick={() => archiveItem(item.id)}>보관함으로 이동</button></div>}<h3>{item.title}</h3><p>{item.details || "세부 내용 없음"}</p>{filter === "archive" ? <div className="archive-actions"><button onClick={() => setItems(current => current.map(work => work.id === item.id ? { ...work, archived: false } : work))}>복구</button><button className="danger" onClick={() => permanentlyDelete(item.id)}>영구 삭제</button></div> : <div className="work-actions"><button onClick={() => setItems(current => current.map(work => work.id === item.id ? { ...work, completed: !work.completed } : work))}>{item.completed ? "↶ 다시 진행" : "✓ 완료하기"}</button></div>}</article>)}{visibleItems.length === 0 && <div className="empty-memos"><strong>{filter === "archive" ? "보관된 업무가 없어요" : "표시할 업무가 없어요"}</strong><p>{filter === "archive" ? "오래 보관할 업무 기록이 이곳에 표시됩니다." : "새 업무를 추가해 보세요."}</p></div>}</section>{filter !== "archive" && !writing && <button className="floating-button" onClick={() => setWriting(true)}>＋ 새 업무 메모</button>}</>;
 }
 
 function CalendarView() {
