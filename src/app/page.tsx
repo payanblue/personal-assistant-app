@@ -88,6 +88,15 @@ type CalendarEvent = {
   deleted?: boolean;
 };
 
+type BackupPayload = {
+  app: "personal-assistant-app";
+  version: 1;
+  exportedAt: string;
+  memos: Memo[];
+  workItems: WorkItem[];
+  events: Array<CalendarEvent & { duration?: string; category?: string }>;
+};
+
 const sampleEvents: CalendarEvent[] = [
   { id: 1, title: "프로젝트 진행 확인", date: "2026-08-06", time: "10:30", content: "진행 상황과 다음 작업 확인", repeatYearly: false, calendarType: "solar", reminder3Days: false, reminder1Day: true, deleted: false },
 ];
@@ -223,8 +232,9 @@ function VoiceCapture({ close, save }: { close: () => void; save: (kind: VoiceKi
   return <div className="voice-overlay" role="dialog" aria-modal="true" aria-label="음성 빠른 입력"><section className="voice-sheet"><header><div><p className="eyebrow">무료 음성 입력</p><h2>말로 기록하기</h2></div><button onClick={close} aria-label="닫기">×</button></header><button className={`listen-button ${listening ? "listening" : ""}`} onClick={toggleListening}><span>{listening ? "■" : "●"}</span>{listening ? "듣기 멈추기" : "마이크로 말하기"}</button><p className="voice-message">{message}</p><label>인식된 내용<textarea value={text} onChange={event => setText(event.target.value)} placeholder="예: 내일 오후 2시 치과 예약 일정 등록해줘" rows={4}/></label><button className="analyze-button" onClick={() => applyAnalysis(text)}>내용 다시 분석</button><div className="voice-kind"><button className={kind === "memo" ? "selected" : ""} onClick={() => setKind("memo")}>메모</button><button className={kind === "work" ? "selected" : ""} onClick={() => setKind("work")}>업무</button><button className={kind === "calendar" ? "selected" : ""} onClick={() => setKind("calendar")}>일정</button></div>{kind === "calendar" && <div className="voice-date"><label>날짜<input type="date" value={date} onChange={event => setDate(event.target.value)}/></label><label>시간<input type="time" value={time} onChange={event => setTime(event.target.value)}/></label></div>}<footer><button className="cancel" onClick={close}>취소</button><button disabled={!text.trim()} onClick={() => save(kind, text.trim(), date, time)}>확인 후 저장</button></footer></section></div>;
 }
 
-function HomeView({ go, workItems, setWorkItems, events, openVoice }: { go: (tab: Tab) => void; workItems: WorkItem[]; setWorkItems: React.Dispatch<React.SetStateAction<WorkItem[]>>; events: CalendarEvent[]; openVoice: () => void }) {
+function HomeView({ go, memos, workItems, setWorkItems, events, openVoice }: { go: (tab: Tab) => void; memos: Memo[]; workItems: WorkItem[]; setWorkItems: React.Dispatch<React.SetStateAction<WorkItem[]>>; events: CalendarEvent[]; openVoice: () => void }) {
   const activeItems = workItems.filter(item => !item.completed && !item.archived);
+  const recentMemos = memos.filter(memo => !memo.deleted).slice(0, 2);
   const today = localDateKey();
   const todayEvents = events.filter(event => !event.deleted && eventOccursOn(event, today)).sort((a, b) => a.time.localeCompare(b.time));
   const reminderMessages = events.flatMap(event => {
@@ -242,6 +252,7 @@ function HomeView({ go, workItems, setWorkItems, events, openVoice }: { go: (tab
     <button className="weather-card" onClick={() => go("weather")}><div><p>서울 · 맑음</p><strong>28°</strong><span>체감 30° · 자세한 예보 보기</span></div><div className="sun" aria-hidden="true">☀</div></button>
     <section className="section-block"><div className="section-title"><h2>오늘 일정</h2><button onClick={() => go("calendar")}>전체보기</button></div>{todayEvents.length > 0 ? <article className="schedule-card"><div className="time"><strong>{todayEvents[0].time}</strong><span>{Number(todayEvents[0].time.slice(0, 2)) < 12 ? "오전" : "오후"}</span></div><div className="divider"/><div><strong>{todayEvents[0].title}</strong><p>{todayEvents[0].content || (todayEvents[0].repeatYearly ? "매년 반복 일정" : "내용 없음")}</p></div></article> : <button className="empty-schedule" onClick={() => go("calendar")}>오늘 예정된 일정이 없어요 · 일정 추가</button>}</section>
     <section className="section-block"><div className="section-title"><h2>할 일</h2><span className="count">{activeItems.length}개 남음</span></div><div className="todo-list">{activeItems.slice(0, 2).map(item => <label key={item.id}><input type="checkbox" checked={item.completed} onChange={() => setWorkItems(items => items.map(current => current.id === item.id ? { ...current, completed: true } : current))}/> {item.title}</label>)}{activeItems.length === 0 && <button className="all-done" onClick={() => go("work")}>오늘 할 일을 모두 마쳤어요 ✓</button>}</div></section>
+    <section className="section-block"><div className="section-title"><h2>최근 메모</h2><button onClick={() => go("memo")}>전체보기</button></div><div className="recent-memo-list">{recentMemos.map(memo => <button onClick={() => go("memo")} key={memo.id}><div><strong>{memo.title}</strong><p>{memo.content || "내용 없음"}</p></div><span>›</span></button>)}{recentMemos.length === 0 && <button className="empty-recent" onClick={() => go("memo")}>아직 메모가 없어요 · 메모 작성</button>}</div></section>
     <section className="shortcut-grid"><button onClick={() => go("memo")}><span>📝</span><strong>빠른 메모</strong><small>바로 기록하기</small></button><button onClick={() => go("work")}><span>✅</span><strong>업무 메모</strong><small>진행할 업무 보기</small></button></section>
   </>;
 }
@@ -423,8 +434,9 @@ function WeatherView({ back }: { back: () => void }) {
   return <><header className="weather-header"><button onClick={back}>‹</button><div><p className="eyebrow">무료 다중모델 예보</p><h1>서울 날씨</h1></div><span>업데이트</span></header>{error ? <div className="weather-state"><strong>날씨를 불러오지 못했어요</strong><p>인터넷 연결을 확인하고 새로고침해 주세요.</p></div> : !data ? <div className="weather-state"><strong>최신 예보를 비교하고 있어요</strong><p>ECMWF·GFS·JMA 자료를 불러오는 중입니다.</p></div> : <><section className="weather-now"><div><p>현재 · {weatherLabel(data.best.current?.weather_code ?? 3)}</p><strong>{Math.round(data.best.current?.temperature_2m ?? 0)}°</strong><span>체감 {Math.round(data.best.current?.apparent_temperature ?? 0)}° · 습도 {data.best.current?.relative_humidity_2m ?? 0}%</span></div><b>{weatherIcon(data.best.current?.weather_code ?? 3)}</b></section><div className="model-badge">3개 예보모델 비교 중 · ECMWF · GFS · JMA</div><section className="forecast-list">{data.best.daily.time.map((date, index) => { const rainVotes = data.models.filter(model => (model.daily.precipitation_sum[index] ?? 0) >= 0.2).length; const agreement = rainVotes === 0 || rainVotes === data.models.length ? "높음" : "보통"; const day = new Intl.DateTimeFormat("ko-KR", { weekday: "short" }).format(new Date(`${date}T12:00:00`)); return <article key={date}><div className="forecast-day"><strong>{index === 0 ? "오늘" : day}</strong><small>{date.slice(5).replace("-", ".")}</small></div><span className="forecast-icon">{weatherIcon(data.best.daily.weather_code[index])}</span><div className="forecast-temp"><strong>{Math.round(data.best.daily.temperature_2m_max[index])}°</strong><span>{Math.round(data.best.daily.temperature_2m_min[index])}°</span></div><div className="forecast-rain"><strong>비 {data.best.daily.precipitation_probability_max?.[index] ?? 0}%</strong><small>모델 {rainVotes}/3 · 일치도 {agreement}</small></div></article>})}</section><div className="weather-source"><strong>예보를 읽는 방법</strong><p>세 모델이 같은 방향이면 일치도 높음으로 표시합니다. 공식 기상특보는 기상청 API 연결 후 별도로 최우선 표시합니다.</p></div></> }</>;
 }
 
-function MoreView({ go }: { go: (tab: Tab) => void }) {
-  return <><PageHeader title="더보기"/><section className="feature-list"><button onClick={() => go("weather")}><span className="feature-icon weather">☀</span><div><strong>날씨</strong><small>여러 예보모델을 비교한 5일 날씨</small></div><b>›</b></button></section><h2 className="settings-title">설정</h2><section className="feature-list compact"><button><span>🔔</span><div><strong>알림 설정</strong></div><b>›</b></button><button><span>🎙</span><div><strong>음성 명령 설정</strong></div><b>›</b></button><button><span>⚙</span><div><strong>앱 설정</strong></div><b>›</b></button></section><div className="coming-note"><strong>현재는 화면 설계 단계예요</strong><p>메모 저장과 일정 연결은 다음 단계에서 하나씩 연결합니다.</p></div></>;
+function MoreView({ go, exportData, importData }: { go: (tab: Tab) => void; exportData: () => void; importData: (file: File) => void }) {
+  const fileInput = useRef<HTMLInputElement | null>(null);
+  return <><PageHeader title="더보기"/><section className="feature-list"><button onClick={() => go("weather")}><span className="feature-icon weather">☀</span><div><strong>날씨</strong><small>여러 예보모델을 비교한 5일 날씨</small></div><b>›</b></button></section><h2 className="settings-title">데이터 관리</h2><section className="feature-list compact"><button onClick={exportData}><span>💾</span><div><strong>전체 데이터 백업</strong><small>메모·업무·일정을 파일로 안전하게 저장</small></div><b>↓</b></button><button onClick={() => fileInput.current?.click()}><span>↺</span><div><strong>백업 파일 복원</strong><small>이전에 저장한 파일에서 데이터 가져오기</small></div><b>›</b></button><input ref={fileInput} className="hidden-file" type="file" accept="application/json,.json" onChange={event => { const file = event.target.files?.[0]; if (file) importData(file); event.target.value = ""; }}/></section><h2 className="settings-title">설정</h2><section className="feature-list compact"><button><span>🔔</span><div><strong>알림 설정</strong><small>일정마다 3일 전·1일 전 메시지 선택</small></div><b>›</b></button><button><span>🎙</span><div><strong>음성 명령 안내</strong><small>홈과 일정 화면에서 말로 입력</small></div><b>›</b></button></section><div className="coming-note"><strong>데이터는 현재 이 브라우저에 저장돼요</strong><p>브라우저 데이터를 지우거나 컴퓨터를 바꾸기 전에 전체 데이터 백업을 받아두면 다시 복원할 수 있습니다.</p></div></>;
 }
 
 export default function Home() {
@@ -456,6 +468,28 @@ export default function Home() {
     if (kind === "calendar") { setEvents(current => [...current, { id: Date.now(), title, date, time, content: text, repeatYearly: false, calendarType: "solar", reminder3Days: true, reminder1Day: true, deleted: false }]); setTab("calendar"); }
     setVoiceOpen(false);
   };
-  const views = { home: <HomeView go={setTab} workItems={workItems} setWorkItems={setWorkItems} events={events} openVoice={() => setVoiceOpen(true)}/>, memo: <MemoView memos={memos} setMemos={setMemos}/>, work: <WorkView items={workItems} setItems={setWorkItems}/>, calendar: <CalendarView events={events} setEvents={setEvents} openVoice={() => setVoiceOpen(true)}/>, more: <MoreView go={setTab}/>, weather: <WeatherView back={() => setTab("more")}/> };
+  const exportData = () => {
+    const backup: BackupPayload = { app: "personal-assistant-app", version: 1, exportedAt: new Date().toISOString(), memos, workItems, events };
+    const url = URL.createObjectURL(new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `나의비서-백업-${localDateKey()}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+  const importData = async (file: File) => {
+    try {
+      const backup = JSON.parse(await file.text()) as BackupPayload;
+      if (backup.app !== "personal-assistant-app" || backup.version !== 1 || !Array.isArray(backup.memos) || !Array.isArray(backup.workItems) || !Array.isArray(backup.events)) throw new Error("invalid backup");
+      if (!window.confirm("현재 메모·업무·일정을 백업 파일 내용으로 바꿀까요? 먼저 현재 데이터를 백업해 두는 것을 권장합니다.")) return;
+      setMemos(backup.memos);
+      setWorkItems(backup.workItems);
+      setEvents(backup.events.map(normalizeCalendarEvent));
+      window.alert("백업 파일에서 데이터를 복원했습니다.");
+    } catch {
+      window.alert("이 앱에서 만든 올바른 백업 파일이 아닙니다.");
+    }
+  };
+  const views = { home: <HomeView go={setTab} memos={memos} workItems={workItems} setWorkItems={setWorkItems} events={events} openVoice={() => setVoiceOpen(true)}/>, memo: <MemoView memos={memos} setMemos={setMemos}/>, work: <WorkView items={workItems} setItems={setWorkItems}/>, calendar: <CalendarView events={events} setEvents={setEvents} openVoice={() => setVoiceOpen(true)}/>, more: <MoreView go={setTab} exportData={exportData} importData={importData}/>, weather: <WeatherView back={() => setTab("more")}/> };
   return <main className="app-shell"><section className="phone-screen"><div className="view-content" key={tab}>{views[tab]}</div><nav className="bottom-nav" aria-label="주요 메뉴">{menuItems.map(item=><button className={tab===item.id?"active":""} onClick={()=>setTab(item.id)} key={item.id}><span>{item.icon}</span>{item.label}</button>)}</nav>{voiceOpen && <VoiceCapture close={() => setVoiceOpen(false)} save={saveVoiceEntry}/>}</section></main>;
 }
