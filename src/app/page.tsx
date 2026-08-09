@@ -54,8 +54,10 @@ type AirQualityResponse = {
 
 type WeatherLocation = { name: string; area: string; latitude: number; longitude: number; timezone: string };
 type GeocodingResult = { name: string; admin1?: string; country?: string; latitude: number; longitude: number; timezone: string };
+type PlaceSearchResult = { display_name: string; lat: string; lon: string; address?: { suburb?: string; neighbourhood?: string; village?: string; town?: string; city?: string; state?: string; country?: string } };
 const defaultWeatherLocation: WeatherLocation = { name: "서울", area: "대한민국", latitude: 37.5665, longitude: 126.978, timezone: "Asia/Seoul" };
 const quickWeatherLocations: WeatherLocation[] = [
+  { name: "성안동", area: "울산광역시 중구", latitude: 35.576, longitude: 129.326, timezone: "Asia/Seoul" },
   defaultWeatherLocation,
   { name: "부산", area: "대한민국", latitude: 35.1796, longitude: 129.0756, timezone: "Asia/Seoul" },
   { name: "대구", area: "대한민국", latitude: 35.8714, longitude: 128.6014, timezone: "Asia/Seoul" },
@@ -349,11 +351,11 @@ function HomeView({ go, memos, workItems, setWorkItems, events, weatherLocation,
   });
   return <>
     <header className="topbar"><div><p className="eyebrow">8월 6일 목요일</p><h1>좋은 아침이에요 👋</h1></div><button className="profile-button" aria-label="내 정보">나</button></header>
+    <button className="quick-input" onClick={openVoice}><span className="mic">●</span><span>메모나 일정을 말해보세요</span><strong>＋</strong></button>
     <HomeWeather location={weatherLocation} openDetails={() => go("weather")}/>
     {reminderMessages.length > 0 && <section className="reminder-messages" aria-label="일정 알림">{reminderMessages.map(({ event, days }) => <button onClick={() => go("calendar")} key={event.id}><span>🔔</span><div><strong>{days}일 후 일정이 있어요</strong><p>{event.title} · {event.allDay ? "종일" : event.time}</p></div><b>›</b></button>)}</section>}
     <section className="section-block"><div className="section-title"><h2>오늘 일정</h2><button onClick={() => go("calendar")}>전체보기</button></div>{todayEvents.length > 0 ? <article className="schedule-card"><div className="time"><strong>{todayEvents[0].allDay ? "종일" : todayEvents[0].time}</strong>{!todayEvents[0].allDay && <span>{Number(todayEvents[0].time.slice(0, 2)) < 12 ? "오전" : "오후"}</span>}</div><div className="divider"/><div><strong>{todayEvents[0].title}</strong><p>{todayEvents[0].content || (todayEvents[0].repeatYearly ? "매년 반복 일정" : "내용 없음")}</p></div></article> : <button className="empty-schedule" onClick={() => go("calendar")}>오늘 예정된 일정이 없어요 · 일정 추가</button>}</section>
     <section className="section-block"><div className="section-title"><h2>할 일</h2><span className="count">{activeItems.length}개 남음</span></div><div className="todo-list">{activeItems.slice(0, 2).map(item => <label key={item.id}><input type="checkbox" checked={item.completed} onChange={() => setWorkItems(items => items.map(current => current.id === item.id ? { ...current, completed: true } : current))}/> {item.title}</label>)}{activeItems.length === 0 && <button className="all-done" onClick={() => go("work")}>오늘 할 일을 모두 마쳤어요 ✓</button>}</div></section>
-    <button className="quick-input home-quick-input" onClick={openVoice}><span className="mic">●</span><span>메모나 일정을 말해보세요</span><strong>＋</strong></button>
     <section className="section-block"><div className="section-title"><h2>최근 메모</h2><button onClick={() => go("memo")}>전체보기</button></div><div className="recent-memo-list">{recentMemos.map(memo => <button onClick={() => go("memo")} key={memo.id}><div><strong>{memo.title}</strong><p>{memo.content || "내용 없음"}</p></div><span>›</span></button>)}{recentMemos.length === 0 && <button className="empty-recent" onClick={() => go("memo")}>아직 메모가 없어요 · 메모 작성</button>}</div></section>
     <section className="shortcut-grid"><button onClick={() => go("memo")}><span>📝</span><strong>빠른 메모</strong><small>바로 기록하기</small></button><button onClick={() => go("work")}><span>✅</span><strong>업무 메모</strong><small>진행할 업무 보기</small></button></section>
   </>;
@@ -395,24 +397,38 @@ function MemoView({ memos, setMemos }: { memos: Memo[]; setMemos: React.Dispatch
 }
 
 function WorkView({ items, setItems }: { items: WorkItem[]; setItems: React.Dispatch<React.SetStateAction<WorkItem[]>> }) {
-  const [filter, setFilter] = useState<"all" | "active" | "done" | "archive">("all");
-  const [writing, setWriting] = useState(false);
+  const [filter, setFilter] = useState<"all" | "trash">("all");
   const [editingId, setEditingId] = useState<number | null>(null);
-  const [openMenu, setOpenMenu] = useState<number | null>(null);
   const [title, setTitle] = useState("");
-  const [details, setDetails] = useState("");
-  const [project, setProject] = useState("업무");
-  const keptItems = items.filter(item => !item.archived);
-  const activeCount = keptItems.filter(item => !item.completed).length;
-  const doneCount = keptItems.filter(item => item.completed).length;
-  const visibleItems = items.filter(item => filter === "archive" ? item.archived : !item.archived && (filter === "all" || (filter === "done" ? item.completed : !item.completed)));
-  const openNewItem = () => { setEditingId(null); setTitle(""); setDetails(""); setProject("업무"); setWriting(true); };
-  const openEditItem = (item: WorkItem) => { setEditingId(item.id); setTitle(item.title); setDetails(item.details); setProject(item.project); setWriting(true); setOpenMenu(null); };
-  const saveItem = () => { if (!title.trim()) return; if (editingId) setItems(current => current.map(item => item.id === editingId ? { ...item, title: title.trim(), details: details.trim(), project: project.trim() || "업무" } : item)); else setItems(current => [{ id: Date.now(), title: title.trim(), details: details.trim(), project: project.trim() || "업무", completed: false, archived: false, createdAt: "방금 전" }, ...current]); setTitle(""); setDetails(""); setProject("업무"); setEditingId(null); setWriting(false); };
-  const archiveItem = (id: number) => { if (window.confirm("이 업무 메모를 보관함으로 이동할까요? 기록은 삭제되지 않습니다.")) { setItems(current => current.map(item => item.id === id ? { ...item, archived: true } : item)); setOpenMenu(null); } };
+  const visibleItems = items.filter(item => filter === "trash" ? item.archived : !item.archived);
+  const addItem = () => {
+    if (!title.trim()) return;
+    setItems(current => [{ id: Date.now(), title: title.trim(), details: "", project: "업무", completed: false, archived: false, createdAt: "방금 전" }, ...current]);
+    setTitle("");
+  };
+  const openEditItem = (item: WorkItem) => { setEditingId(item.id); setTitle(item.title); };
+  const saveEdit = () => {
+    if (!title.trim() || editingId === null) return;
+    setItems(current => current.map(item => item.id === editingId ? { ...item, title: title.trim() } : item));
+    setEditingId(null);
+    setTitle("");
+  };
+  const moveItem = (id: number, direction: -1 | 1) => {
+    setItems(current => {
+      const currentIndex = current.findIndex(item => item.id === id);
+      const visibleIndex = visibleItems.findIndex(item => item.id === id);
+      const targetId = visibleItems[visibleIndex + direction]?.id;
+      const targetIndex = current.findIndex(item => item.id === targetId);
+      if (currentIndex < 0 || targetIndex < 0) return current;
+      const next = [...current];
+      [next[currentIndex], next[targetIndex]] = [next[targetIndex], next[currentIndex]];
+      return next;
+    });
+  };
+  const trashItem = (id: number) => { if (window.confirm("이 업무 메모를 휴지통으로 옮길까요? 휴지통에서 복구할 수 있어요.")) setItems(current => current.map(item => item.id === id ? { ...item, archived: true } : item)); };
   const permanentlyDelete = (id: number) => { if (window.confirm("이 업무 기록을 영구 삭제할까요? 이 작업은 되돌릴 수 없습니다.")) setItems(current => current.filter(item => item.id !== id)); };
 
-  return <><PageHeader title={filter === "archive" ? "업무 보관함" : "업무 메모"} action={filter === "archive" ? undefined : "＋"}/><div className="summary-strip"><div><strong>{activeCount}</strong><span>진행 중</span></div><div><strong>{doneCount}</strong><span>완료</span></div><div><strong>{keptItems.length}</strong><span>전체 업무</span></div></div><div className="filter-row work-filters"><button className={filter === "all" ? "selected" : ""} onClick={() => setFilter("all")}>전체</button><button className={filter === "active" ? "selected" : ""} onClick={() => setFilter("active")}>진행 중</button><button className={filter === "done" ? "selected" : ""} onClick={() => setFilter("done")}>완료</button><button className={filter === "archive" ? "selected" : ""} onClick={() => setFilter("archive")}>보관함</button></div>{writing && <section className="work-editor"><strong>{editingId ? "업무 메모 수정" : "새 업무 메모"}</strong><input value={title} onChange={event => setTitle(event.target.value)} placeholder="할 일 제목" autoFocus/><textarea value={details} onChange={event => setDetails(event.target.value)} placeholder="세부 내용을 적어주세요" rows={3}/><div><input value={project} onChange={event => setProject(event.target.value)} placeholder="분류"/><button className="cancel" onClick={() => { setWriting(false); setEditingId(null); }}>취소</button><button onClick={saveItem}>{editingId ? "수정 저장" : "저장"}</button></div></section>}<section className="work-feed">{visibleItems.map(item => <article className={item.completed ? "completed" : ""} key={item.id}><div className="feed-line"><span className={`status-dot ${item.completed ? "green" : "orange"}`}/><small>{item.createdAt} · {item.project}</small>{filter !== "archive" && <button className="more-button" aria-label={`${item.title} 더보기`} onClick={() => setOpenMenu(openMenu === item.id ? null : item.id)}>•••</button>}</div>{openMenu === item.id && <div className="work-menu"><strong>기록 관리</strong><p>내용을 수정하거나 안전하게 보관함으로 옮길 수 있어요.</p><div><button onClick={() => openEditItem(item)}>내용 수정</button><button onClick={() => archiveItem(item.id)}>보관함으로 이동</button></div></div>}<h3>{item.title}</h3><p>{item.details || "세부 내용 없음"}</p><ContactActions title={item.title} text={item.details}/>{filter === "archive" ? <div className="archive-actions"><button onClick={() => setItems(current => current.map(work => work.id === item.id ? { ...work, archived: false } : work))}>복구</button><button className="danger" onClick={() => permanentlyDelete(item.id)}>영구 삭제</button></div> : <div className="work-actions"><button onClick={() => setItems(current => current.map(work => work.id === item.id ? { ...work, completed: !work.completed } : work))}>{item.completed ? "↶ 다시 진행" : "✓ 완료하기"}</button></div>}</article>)}{visibleItems.length === 0 && <div className="empty-memos"><strong>{filter === "archive" ? "보관된 업무가 없어요" : "표시할 업무가 없어요"}</strong><p>{filter === "archive" ? "오래 보관할 업무 기록이 이곳에 표시됩니다." : "새 업무를 추가해 보세요."}</p></div>}</section>{filter !== "archive" && !writing && <button className="floating-button" onClick={openNewItem}>＋ 새 업무 메모</button>}</>;
+  return <><PageHeader title={filter === "trash" ? "업무 메모 휴지통" : "업무 메모"}/><div className="filter-row work-filters"><button className={filter === "all" ? "selected" : ""} onClick={() => setFilter("all")}>업무 메모</button><button className={filter === "trash" ? "selected" : ""} onClick={() => setFilter("trash")}>휴지통</button></div>{filter === "all" && <section className="work-quick-entry"><input value={editingId === null ? title : ""} onChange={event => { setEditingId(null); setTitle(event.target.value); }} onKeyDown={event => { if (event.key === "Enter") addItem(); }} placeholder="업무 메모를 한 줄로 입력하세요"/><button onClick={addItem}>추가</button></section>}<section className="work-line-list">{visibleItems.map((item, index) => editingId === item.id ? <article className="work-line editing" key={item.id}><span className="drag-handle">⠿</span><input value={title} onChange={event => setTitle(event.target.value)} onKeyDown={event => { if (event.key === "Enter") saveEdit(); if (event.key === "Escape") { setEditingId(null); setTitle(""); } }} autoFocus/><button onClick={saveEdit}>저장</button><button className="cancel" onClick={() => { setEditingId(null); setTitle(""); }}>취소</button></article> : <article className={`work-line ${item.completed ? "completed" : ""}`} key={item.id}><span className="drag-handle" aria-hidden="true">⠿</span><input aria-label={`${item.title} 완료`} type="checkbox" checked={item.completed} onChange={() => setItems(current => current.map(work => work.id === item.id ? { ...work, completed: !work.completed } : work))}/><button className="work-line-title" onClick={() => openEditItem(item)}>{item.title}</button>{filter === "all" ? <div className="line-actions"><button disabled={index === 0} onClick={() => moveItem(item.id, -1)} aria-label="위로 이동">↑</button><button disabled={index === visibleItems.length - 1} onClick={() => moveItem(item.id, 1)} aria-label="아래로 이동">↓</button><button className="danger" onClick={() => trashItem(item.id)}>삭제</button></div> : <div className="line-actions"><button onClick={() => setItems(current => current.map(work => work.id === item.id ? { ...work, archived: false } : work))}>복구</button><button className="danger" onClick={() => permanentlyDelete(item.id)}>영구 삭제</button></div>}</article>)}{visibleItems.length === 0 && <div className="empty-memos"><strong>{filter === "trash" ? "휴지통이 비어 있어요" : "업무 메모가 없어요"}</strong><p>{filter === "trash" ? "삭제한 업무 메모가 여기 표시됩니다." : "위 입력칸에 한 줄씩 바로 추가해 보세요."}</p></div>}</section></>;
 }
 
 function CalendarView({ events, setEvents, openVoice }: { events: CalendarEvent[]; setEvents: React.Dispatch<React.SetStateAction<CalendarEvent[]>>; openVoice: () => void }) {
@@ -577,16 +593,32 @@ function WeatherView({ back, location, setLocation }: { back: () => void; locati
   const [query, setQuery] = useState("");
   const [searching, setSearching] = useState(false);
   const [results, setResults] = useState<GeocodingResult[]>([]);
+  const [noResults, setNoResults] = useState(false);
 
   const searchLocation = async () => {
     if (query.trim().length < 2) return;
     setSearching(true);
+    setNoResults(false);
     try {
-      const response = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query.trim())}&count=5&language=ko&format=json`);
-      if (!response.ok) throw new Error("location search failed");
-      const value = await response.json() as { results?: GeocodingResult[] };
-      setResults(value.results ?? []);
-    } catch { setResults([]); }
+      const keyword = query.trim();
+      const [weatherResponse, placeResponse] = await Promise.all([
+        fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(keyword)}&count=8&language=ko&format=json`),
+        fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=8&accept-language=ko&q=${encodeURIComponent(`${keyword} 대한민국`)}`),
+      ]);
+      const weatherValue = weatherResponse.ok ? await weatherResponse.json() as { results?: GeocodingResult[] } : { results: [] };
+      const placeValue = placeResponse.ok ? await placeResponse.json() as PlaceSearchResult[] : [];
+      const placeResults: GeocodingResult[] = placeValue.map(place => ({
+        name: place.address?.suburb ?? place.address?.neighbourhood ?? place.address?.village ?? place.address?.town ?? place.address?.city ?? place.display_name.split(",")[0],
+        admin1: [place.address?.city, place.address?.state].filter(Boolean).join(" · ") || undefined,
+        country: place.address?.country ?? "대한민국",
+        latitude: Number(place.lat),
+        longitude: Number(place.lon),
+        timezone: "Asia/Seoul",
+      })).filter(place => Number.isFinite(place.latitude) && Number.isFinite(place.longitude));
+      const merged = [...(weatherValue.results ?? []), ...placeResults].filter((place, index, all) => all.findIndex(other => Math.abs(other.latitude - place.latitude) < 0.005 && Math.abs(other.longitude - place.longitude) < 0.005) === index);
+      setResults(merged);
+      setNoResults(merged.length === 0);
+    } catch { setResults([]); setNoResults(true); }
     finally { setSearching(false); }
   };
 
@@ -604,7 +636,7 @@ function WeatherView({ back, location, setLocation }: { back: () => void; locati
       .catch(() => setError(true));
   }, [location]);
 
-  return <><header className="weather-header"><button onClick={back}>‹</button><div><p className="eyebrow">무료 다중모델 예보</p><h1>{location.name} 날씨</h1></div><span>{location.area}</span></header><section className="location-search"><div><input value={query} onChange={event => setQuery(event.target.value)} onKeyDown={event => { if (event.key === "Enter") searchLocation(); }} placeholder="동네나 도시 검색"/><button onClick={searchLocation}>{searching ? "검색 중" : "검색"}</button></div><div className="quick-locations">{quickWeatherLocations.map(item => <button className={item.name === location.name ? "selected" : ""} key={item.name} onClick={() => { setData(null); setError(false); setLocation(item); }}>{item.name}</button>)}</div>{results.length > 0 && <div className="location-results">{results.map(result => <button key={`${result.latitude}-${result.longitude}`} onClick={() => { setData(null); setError(false); setLocation({ name: result.name, area: [result.admin1, result.country].filter(Boolean).join(" · "), latitude: result.latitude, longitude: result.longitude, timezone: result.timezone }); setResults([]); setQuery(""); }}><strong>{result.name}</strong><span>{[result.admin1, result.country].filter(Boolean).join(" · ")}</span></button>)}</div>}</section>{error ? <div className="weather-state"><strong>날씨를 불러오지 못했어요</strong><p>인터넷 연결을 확인하고 새로고침해 주세요.</p></div> : !data ? <div className="weather-state"><strong>최신 예보를 비교하고 있어요</strong><p>ECMWF·GFS·JMA 자료를 불러오는 중입니다.</p></div> : <><section className="weather-now"><div><p>현재 · {weatherLabel(data.best.current?.weather_code ?? 3)}</p><strong>{Math.round(data.best.current?.temperature_2m ?? 0)}°</strong><span>체감 {Math.round(data.best.current?.apparent_temperature ?? 0)}° · 습도 {data.best.current?.relative_humidity_2m ?? 0}%</span></div><b>{weatherIcon(data.best.current?.weather_code ?? 3)}</b></section><div className="model-badge">3개 예보모델 비교 중 · ECMWF · GFS · JMA</div><section className="forecast-list">{data.best.daily.time.map((date, index) => { const rainVotes = data.models.filter(model => (model.daily.precipitation_sum[index] ?? 0) >= 0.2).length; const agreement = rainVotes === 0 || rainVotes === data.models.length ? "높음" : "보통"; const day = new Intl.DateTimeFormat("ko-KR", { weekday: "short" }).format(new Date(`${date}T12:00:00`)); return <article key={date}><div className="forecast-day"><strong>{index === 0 ? "오늘" : day}</strong><small>{date.slice(5).replace("-", ".")}</small></div><span className="forecast-icon">{weatherIcon(data.best.daily.weather_code[index])}</span><div className="forecast-temp"><strong>{Math.round(data.best.daily.temperature_2m_max[index])}°</strong><span>{Math.round(data.best.daily.temperature_2m_min[index])}°</span></div><div className="forecast-rain"><strong>비 {data.best.daily.precipitation_probability_max?.[index] ?? 0}%</strong><small>모델 {rainVotes}/3 · 일치도 {agreement}</small></div></article>})}</section><div className="weather-source"><strong>예보를 읽는 방법</strong><p>세 모델이 같은 방향이면 일치도 높음으로 표시합니다. 공식 기상특보는 기상청 API 연결 후 별도로 최우선 표시합니다.</p></div></> }</>;
+  return <><header className="weather-header"><button onClick={back}>‹</button><div><p className="eyebrow">무료 다중모델 예보</p><h1>{location.name} 날씨</h1></div><span>{location.area}</span></header><section className="location-search"><div><input value={query} onChange={event => setQuery(event.target.value)} onKeyDown={event => { if (event.key === "Enter") searchLocation(); }} placeholder="동·읍·면 또는 도시 검색 (예: 성안동)"/><button onClick={searchLocation}>{searching ? "검색 중" : "검색"}</button></div><p className="location-hint">전국 동·읍·면, 시·군·구를 검색해 날씨 위치로 저장할 수 있어요.</p><div className="quick-locations">{quickWeatherLocations.map(item => <button className={item.name === location.name ? "selected" : ""} key={item.name} onClick={() => { setData(null); setError(false); setLocation(item); }}>{item.name}</button>)}</div>{results.length > 0 && <div className="location-results">{results.map(result => <button key={`${result.latitude}-${result.longitude}`} onClick={() => { setData(null); setError(false); setLocation({ name: result.name, area: [result.admin1, result.country].filter(Boolean).join(" · "), latitude: result.latitude, longitude: result.longitude, timezone: result.timezone }); setResults([]); setQuery(""); }}><strong>{result.name}</strong><span>{[result.admin1, result.country].filter(Boolean).join(" · ")}</span></button>)}</div>}{noResults && <p className="location-empty">검색 결과가 없어요. `울산 중구 성안동`처럼 시·군·구를 함께 입력해 보세요.</p>}</section>{error ? <div className="weather-state"><strong>날씨를 불러오지 못했어요</strong><p>인터넷 연결을 확인하고 새로고침해 주세요.</p></div> : !data ? <div className="weather-state"><strong>최신 예보를 비교하고 있어요</strong><p>ECMWF·GFS·JMA 자료를 불러오는 중입니다.</p></div> : <><section className="weather-now"><div><p>현재 · {weatherLabel(data.best.current?.weather_code ?? 3)}</p><strong>{Math.round(data.best.current?.temperature_2m ?? 0)}°</strong><span>체감 {Math.round(data.best.current?.apparent_temperature ?? 0)}° · 습도 {data.best.current?.relative_humidity_2m ?? 0}%</span></div><b>{weatherIcon(data.best.current?.weather_code ?? 3)}</b></section><div className="model-badge">3개 예보모델 비교 중 · ECMWF · GFS · JMA</div><section className="forecast-list">{data.best.daily.time.map((date, index) => { const rainVotes = data.models.filter(model => (model.daily.precipitation_sum[index] ?? 0) >= 0.2).length; const agreement = rainVotes === 0 || rainVotes === data.models.length ? "높음" : "보통"; const day = new Intl.DateTimeFormat("ko-KR", { weekday: "short" }).format(new Date(`${date}T12:00:00`)); return <article key={date}><div className="forecast-day"><strong>{index === 0 ? "오늘" : day}</strong><small>{date.slice(5).replace("-", ".")}</small></div><span className="forecast-icon">{weatherIcon(data.best.daily.weather_code[index])}</span><div className="forecast-temp"><strong>{Math.round(data.best.daily.temperature_2m_max[index])}°</strong><span>{Math.round(data.best.daily.temperature_2m_min[index])}°</span></div><div className="forecast-rain"><strong>비 {data.best.daily.precipitation_probability_max?.[index] ?? 0}%</strong><small>모델 {rainVotes}/3 · 일치도 {agreement}</small></div></article>})}</section><div className="weather-source"><strong>예보를 읽는 방법</strong><p>세 모델이 같은 방향이면 일치도 높음으로 표시합니다. 공식 기상특보는 기상청 API 연결 후 별도로 최우선 표시합니다.</p></div></> }</>;
 }
 
 function MoreView({ go, exportData, importData }: { go: (tab: Tab) => void; exportData: () => void; importData: (file: File) => void }) {
