@@ -115,6 +115,7 @@ type BackupPayload = {
   workItems: WorkItem[];
   events: Array<CalendarEvent & { duration?: string; category?: string }>;
   weatherLocation?: WeatherLocation;
+  savedWeatherLocations?: WeatherLocation[];
 };
 
 const sampleEvents: CalendarEvent[] = [];
@@ -426,6 +427,40 @@ function WorkView({ items, setItems }: { items: WorkItem[]; setItems: React.Disp
   };
   const trashItem = (id: number) => { if (window.confirm("이 업무 메모를 휴지통으로 옮길까요? 휴지통에서 복구할 수 있어요.")) setItems(current => current.map(item => item.id === id ? { ...item, archived: true } : item)); };
   const permanentlyDelete = (id: number) => { if (window.confirm("이 업무 기록을 영구 삭제할까요? 이 작업은 되돌릴 수 없습니다.")) setItems(current => current.filter(item => item.id !== id)); };
+  useEffect(() => {
+    let sourceIndex = -1;
+    const stop = () => { sourceIndex = -1; };
+    const move = (event: PointerEvent) => {
+      if (sourceIndex < 0) return;
+      const target = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>(".work-line");
+      const list = target?.parentElement;
+      if (!target || !list) return;
+      const targetIndex = Array.from(list.querySelectorAll(":scope > .work-line")).indexOf(target);
+      if (targetIndex < 0 || targetIndex === sourceIndex || !visibleItems[sourceIndex] || !visibleItems[targetIndex]) return;
+      const sourceId = visibleItems[sourceIndex].id;
+      const targetId = visibleItems[targetIndex].id;
+      setItems(current => {
+        const from = current.findIndex(item => item.id === sourceId);
+        const to = current.findIndex(item => item.id === targetId);
+        if (from < 0 || to < 0) return current;
+        const next = [...current];
+        const [moved] = next.splice(from, 1);
+        next.splice(to, 0, moved);
+        return next;
+      });
+      sourceIndex = targetIndex;
+    };
+    const start = (event: PointerEvent) => {
+      const handle = (event.target as HTMLElement).closest(".drag-handle");
+      const row = handle?.closest<HTMLElement>(".work-line");
+      const list = row?.parentElement;
+      if (!row || !list || filter !== "all") return;
+      sourceIndex = Array.from(list.querySelectorAll(":scope > .work-line")).indexOf(row);
+      if (sourceIndex >= 0) { event.preventDefault(); document.addEventListener("pointermove", move); document.addEventListener("pointerup", stop, { once: true }); }
+    };
+    document.addEventListener("pointerdown", start);
+    return () => { document.removeEventListener("pointerdown", start); document.removeEventListener("pointermove", move); document.removeEventListener("pointerup", stop); };
+  }, [filter, visibleItems, setItems]);
 
   return <><PageHeader title={filter === "trash" ? "업무 메모 휴지통" : "업무 메모"} action={filter === "all" ? "＋" : undefined} onAction={() => quickInputRef.current?.focus()}/><div className="filter-row work-filters"><button className={filter === "all" ? "selected" : ""} onClick={() => setFilter("all")}>업무 메모</button><button className={filter === "trash" ? "selected" : ""} onClick={() => setFilter("trash")}>휴지통</button></div>{filter === "all" && <section className="work-quick-entry"><input ref={quickInputRef} value={editingId === null ? title : ""} onChange={event => { setEditingId(null); setTitle(event.target.value); }} onKeyDown={event => { if (event.key === "Enter") addItem(); }} placeholder="업무 메모를 한 줄로 입력하세요"/><button type="button" onClick={addItem}>추가</button></section>}<section className="work-line-list">{visibleItems.map((item, index) => editingId === item.id ? <article className="work-line editing" key={item.id}><span className="drag-handle">⠿</span><input value={title} onChange={event => setTitle(event.target.value)} onKeyDown={event => { if (event.key === "Enter") saveEdit(); if (event.key === "Escape") { setEditingId(null); setTitle(""); } }} autoFocus/><button onClick={saveEdit}>저장</button><button className="cancel" onClick={() => { setEditingId(null); setTitle(""); }}>취소</button></article> : <article className={`work-line ${item.completed ? "completed" : ""}`} key={item.id}><span className="drag-handle" aria-hidden="true">⠿</span><input aria-label={`${item.title} 완료`} type="checkbox" checked={item.completed} onChange={() => setItems(current => current.map(work => work.id === item.id ? { ...work, completed: !work.completed } : work))}/><button className="work-line-title" onClick={() => openEditItem(item)}>{item.title}</button>{filter === "all" ? <div className="line-actions"><button disabled={index === 0} onClick={() => moveItem(item.id, -1)} aria-label="위로 이동">↑</button><button disabled={index === visibleItems.length - 1} onClick={() => moveItem(item.id, 1)} aria-label="아래로 이동">↓</button><button className="danger" onClick={() => trashItem(item.id)}>삭제</button></div> : <div className="line-actions"><button onClick={() => setItems(current => current.map(work => work.id === item.id ? { ...work, archived: false } : work))}>복구</button><button className="danger" onClick={() => permanentlyDelete(item.id)}>영구 삭제</button></div>}</article>)}{visibleItems.length === 0 && <div className="empty-memos"><strong>{filter === "trash" ? "휴지통이 비어 있어요" : "업무 메모가 없어요"}</strong><p>{filter === "trash" ? "삭제한 업무 메모가 여기 표시됩니다." : "위 입력칸에 한 줄씩 바로 추가해 보세요."}</p></div>}</section></>;
 }
@@ -586,7 +621,7 @@ function weatherIcon(code: number) {
   return "☁";
 }
 
-function WeatherView({ back, location, setLocation }: { back: () => void; location: WeatherLocation; setLocation: (location: WeatherLocation) => void }) {
+function WeatherView({ back, location, setLocation, savedLocations, setSavedLocations }: { back: () => void; location: WeatherLocation; setLocation: (location: WeatherLocation) => void; savedLocations: WeatherLocation[]; setSavedLocations: React.Dispatch<React.SetStateAction<WeatherLocation[]>> }) {
   const [data, setData] = useState<{ best: WeatherResponse; models: WeatherResponse[] } | null>(null);
   const [error, setError] = useState(false);
   const [query, setQuery] = useState("");
@@ -636,7 +671,16 @@ function WeatherView({ back, location, setLocation }: { back: () => void; locati
       .catch(() => setError(true));
   }, [location]);
 
-  const hourlyForecast = data?.best.hourly?.time.map((time, index) => <article key={time}><time>{time.slice(5).replace("T", " ")}</time><span>{weatherIcon(data.best.hourly?.weather_code[index] ?? 3)}</span><strong>{Math.round(data.best.hourly?.temperature_2m[index] ?? 0)}°</strong><small>비 {data.best.hourly?.precipitation_probability[index] ?? 0}% · 바람 {Math.round(data.best.hourly?.wind_speed_10m[index] ?? 0)}m/s · 습도 {data.best.hourly?.relative_humidity_2m[index] ?? 0}%</small></article>);
+  useEffect(() => {
+    if (!navigator.geolocation) return;
+    if (savedLocations.some(item => item.name === "현재 위치")) return;
+    navigator.geolocation.getCurrentPosition(position => {
+      const currentLocation = { name: "현재 위치", area: "GPS", latitude: position.coords.latitude, longitude: position.coords.longitude, timezone: "Asia/Seoul" };
+      setLocation(currentLocation);
+      setSavedLocations(current => [currentLocation, ...current.filter(item => Math.abs(item.latitude - currentLocation.latitude) > 0.005 || Math.abs(item.longitude - currentLocation.longitude) > 0.005)].slice(0, 5));
+    }, () => undefined, { enableHighAccuracy: false, timeout: 8000, maximumAge: 300000 });
+  }, [savedLocations, setLocation, setSavedLocations]);
+  const hourlyForecast = data?.best.hourly?.time.slice(0, 72).map((time, index) => <article key={time}><time>{index === 0 ? "지금" : `${new Date(time).getMonth() + 1}/${new Date(time).getDate()} ${new Date(time).getHours()}시`}</time><b>{weatherIcon(data.best.hourly?.weather_code[index] ?? 3)}</b><strong>{Math.round(data.best.hourly?.temperature_2m[index] ?? 0)}°</strong><span className="hourly-rain">비 {data.best.hourly?.precipitation_probability[index] ?? 0}%</span><span>바람 {Math.round(data.best.hourly?.wind_speed_10m[index] ?? 0)}</span><span>습도 {data.best.hourly?.relative_humidity_2m[index] ?? 0}%</span></article>);
 
   return <><header className="weather-header"><button onClick={back}>‹</button><div><p className="eyebrow">무료 다중모델 예보</p><h1>{location.name} 날씨</h1></div><span>{location.area}</span></header><section className="location-search"><div><input value={query} onChange={event => setQuery(event.target.value)} onKeyDown={event => { if (event.key === "Enter") searchLocation(); }} placeholder="동·읍·면 또는 도시 검색 (예: 성안동)"/><button onClick={searchLocation}>{searching ? "검색 중" : "검색"}</button></div><p className="location-hint">전국 동·읍·면, 시·군·구를 검색해 날씨 위치로 저장할 수 있어요.</p><div className="quick-locations">{quickWeatherLocations.map(item => <button className={item.name === location.name ? "selected" : ""} key={item.name} onClick={() => { setData(null); setError(false); setLocation(item); }}>{item.name}</button>)}</div>{results.length > 0 && <div className="location-results">{results.map(result => <button key={`${result.latitude}-${result.longitude}`} onClick={() => { setData(null); setError(false); setLocation({ name: result.name, area: [result.admin1, result.country].filter(Boolean).join(" · "), latitude: result.latitude, longitude: result.longitude, timezone: result.timezone }); setResults([]); setQuery(""); }}><strong>{result.name}</strong><span>{[result.admin1, result.country].filter(Boolean).join(" · ")}</span></button>)}</div>}{noResults && <p className="location-empty">검색 결과가 없어요. `울산 중구 성안동`처럼 시·군·구를 함께 입력해 보세요.</p>}</section>{error ? <div className="weather-state"><strong>날씨를 불러오지 못했어요</strong><p>인터넷 연결을 확인하고 새로고침해 주세요.</p></div> : !data ? <div className="weather-state"><strong>최신 예보를 비교하고 있어요</strong><p>ECMWF·GFS·JMA 자료를 불러오는 중입니다.</p></div> : <><section className="weather-now"><div><p>현재 · {weatherLabel(data.best.current?.weather_code ?? 3)}</p><strong>{Math.round(data.best.current?.temperature_2m ?? 0)}°</strong><span>체감 {Math.round(data.best.current?.apparent_temperature ?? 0)}° · 습도 {data.best.current?.relative_humidity_2m ?? 0}%</span></div><b>{weatherIcon(data.best.current?.weather_code ?? 3)}</b></section><div className="model-badge">3개 예보모델 비교 중 · ECMWF · GFS · JMA</div><section className="hourly-detail"><div className="section-title"><h2>시간별 예보</h2><span className="count">최대 16일</span></div><div className="hourly-detail-list">{hourlyForecast}</div></section><section className="forecast-list">{data.best.daily.time.map((date, index) => { const rainVotes = data.models.filter(model => (model.daily.precipitation_sum[index] ?? 0) >= 0.2).length; const agreement = rainVotes === 0 || rainVotes === data.models.length ? "높음" : "보통"; const day = new Intl.DateTimeFormat("ko-KR", { weekday: "short" }).format(new Date(`${date}T12:00:00`)); return <article key={date}><div className="forecast-day"><strong>{index === 0 ? "오늘" : day}</strong><small>{date.slice(5).replace("-", ".")}</small></div><span className="forecast-icon">{weatherIcon(data.best.daily.weather_code[index])}</span><div className="forecast-temp"><strong>{Math.round(data.best.daily.temperature_2m_max[index])}°</strong><span>{Math.round(data.best.daily.temperature_2m_min[index])}°</span></div><div className="forecast-rain"><strong>비 {data.best.daily.precipitation_probability_max?.[index] ?? 0}%</strong><small>모델 {rainVotes}/3 · 일치도 {agreement}</small></div></article>})}</section><div className="weather-source"><strong>예보를 읽는 방법</strong><p>세 모델이 같은 방향이면 일치도 높음으로 표시합니다. 공식 기상특보는 기상청 API 연결 후 별도로 최우선 표시합니다.</p></div></> }</>;
 }
@@ -654,6 +698,7 @@ export default function Home() {
   const [workItems, setWorkItems] = useState<WorkItem[]>(sampleWorkItems);
   const [events, setEvents] = useState<CalendarEvent[]>(sampleEvents);
   const [weatherLocation, setWeatherLocation] = useState<WeatherLocation>(defaultWeatherLocation);
+  const [savedWeatherLocations, setSavedWeatherLocations] = useState<WeatherLocation[]>([defaultWeatherLocation]);
   const [storageReady, setStorageReady] = useState(false);
   useEffect(() => {
     tabRef.current = tab;
@@ -686,10 +731,12 @@ export default function Home() {
       const savedWork = window.localStorage.getItem("my-assistant-work");
       const savedEvents = window.localStorage.getItem("my-assistant-events");
       const savedWeatherLocation = window.localStorage.getItem("my-assistant-weather-location");
+      const savedWeatherLocationsValue = window.localStorage.getItem("my-assistant-saved-weather-locations");
       try { if (savedMemos) setMemos(JSON.parse(savedMemos)); } catch { /* 기본 메모 유지 */ }
       try { if (savedWork) setWorkItems(JSON.parse(savedWork)); } catch { /* 기본 업무 유지 */ }
       try { if (savedEvents) setEvents((JSON.parse(savedEvents) as Array<CalendarEvent & { duration?: string; category?: string }>).map(normalizeCalendarEvent)); } catch { /* 기본 일정 유지 */ }
       try { if (savedWeatherLocation) setWeatherLocation(JSON.parse(savedWeatherLocation)); } catch { /* 서울 유지 */ }
+      try { if (savedWeatherLocationsValue) setSavedWeatherLocations(JSON.parse(savedWeatherLocationsValue)); } catch { /* 기본 위치 유지 */ }
       setStorageReady(true);
     }, 0);
     return () => window.clearTimeout(loadSavedData);
@@ -698,6 +745,7 @@ export default function Home() {
   useEffect(() => { if (storageReady) window.localStorage.setItem("my-assistant-work", JSON.stringify(workItems)); }, [workItems, storageReady]);
   useEffect(() => { if (storageReady) window.localStorage.setItem("my-assistant-events", JSON.stringify(events)); }, [events, storageReady]);
   useEffect(() => { if (storageReady) window.localStorage.setItem("my-assistant-weather-location", JSON.stringify(weatherLocation)); }, [weatherLocation, storageReady]);
+  useEffect(() => { if (storageReady) window.localStorage.setItem("my-assistant-saved-weather-locations", JSON.stringify(savedWeatherLocations)); }, [savedWeatherLocations, storageReady]);
   useEffect(() => {
     if (process.env.NODE_ENV === "production" && "serviceWorker" in navigator) navigator.serviceWorker.register(`${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/sw.js`).catch(() => undefined);
   }, []);
@@ -731,6 +779,6 @@ export default function Home() {
       window.alert("이 앱에서 만든 올바른 백업 파일이 아닙니다.");
     }
   };
-  const views = { home: <HomeView go={navigateTab} memos={memos} events={events} weatherLocation={weatherLocation} openVoice={() => setVoiceOpen(true)}/>, memo: <MemoView memos={memos} setMemos={setMemos}/>, work: <WorkView items={workItems} setItems={setWorkItems}/>, calendar: <CalendarView events={events} setEvents={setEvents} openVoice={() => setVoiceOpen(true)}/>, more: <MoreView go={navigateTab} exportData={exportData} importData={importData}/>, weather: <WeatherView back={() => navigateTab("more")} location={weatherLocation} setLocation={setWeatherLocation}/> };
+  const views = { home: <HomeView go={navigateTab} memos={memos} events={events} weatherLocation={weatherLocation} openVoice={() => setVoiceOpen(true)}/>, memo: <MemoView memos={memos} setMemos={setMemos}/>, work: <WorkView items={workItems} setItems={setWorkItems}/>, calendar: <CalendarView events={events} setEvents={setEvents} openVoice={() => setVoiceOpen(true)}/>, more: <MoreView go={navigateTab} exportData={exportData} importData={importData}/>, weather: <WeatherView back={() => navigateTab("more")} location={weatherLocation} setLocation={setWeatherLocation} savedLocations={savedWeatherLocations} setSavedLocations={setSavedWeatherLocations}/> };
   return <main className="app-shell"><section className="phone-screen"><div className="view-content" key={tab}>{views[tab]}</div><nav className="bottom-nav" aria-label="주요 메뉴">{menuItems.map(item=><button className={tab===item.id?"active":""} onClick={()=>navigateTab(item.id)} key={item.id}><span>{item.icon}</span>{item.label}</button>)}</nav>{voiceOpen && <VoiceCapture close={() => setVoiceOpen(false)} save={saveVoiceEntry}/>}</section></main>;
 }
