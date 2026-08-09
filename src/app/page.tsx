@@ -391,7 +391,7 @@ function HomeWeather({
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
-    const common = `latitude=${location.latitude}&longitude=${location.longitude}&timezone=${encodeURIComponent(location.timezone)}&forecast_days=2`;
+    const common = `latitude=${location.latitude}&longitude=${location.longitude}&timezone=${encodeURIComponent(location.timezone)}&forecast_days=2&wind_speed_unit=ms`;
     const forecastUrl = `https://api.open-meteo.com/v1/forecast?${common}&current=temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code&hourly=temperature_2m,relative_humidity_2m,precipitation_probability,weather_code,wind_speed_10m`;
     const airUrl = `https://air-quality-api.open-meteo.com/v1/air-quality?${common}&hourly=pm10,pm2_5`;
     Promise.all([fetch(forecastUrl), fetch(airUrl)])
@@ -1176,7 +1176,7 @@ function WorkView({
     let activeRow: HTMLElement | null = null;
     let startY = 0;
     const stop = () => {
-      if (activeRow) activeRow.style.transform = "";
+      if (activeRow) { activeRow.style.transform = ""; activeRow.style.pointerEvents = ""; }
       activeRow = null;
       const sourceId = dragSourceId.current;
       const targetId = dragTargetId.current;
@@ -1220,12 +1220,15 @@ function WorkView({
       if (sourceIndex >= 0) {
         activeRow = row;
         startY = event.clientY;
+        row.style.pointerEvents = "none";
+        row.setPointerCapture?.(event.pointerId);
         dragSourceId.current = visibleItems[sourceIndex].id;
         dragTargetId.current = visibleItems[sourceIndex].id;
         setDraggingId(dragSourceId.current);
         event.preventDefault();
         document.addEventListener("pointermove", move);
         document.addEventListener("pointerup", stop, { once: true });
+        document.addEventListener("pointercancel", stop, { once: true });
       }
     };
     document.addEventListener("pointerdown", start);
@@ -1233,6 +1236,7 @@ function WorkView({
       document.removeEventListener("pointerdown", start);
       document.removeEventListener("pointermove", move);
       document.removeEventListener("pointerup", stop);
+      document.removeEventListener("pointercancel", stop);
     };
   }, [filter, visibleItems, setItems]);
 
@@ -2109,8 +2113,8 @@ function WeatherView({
   };
 
   useEffect(() => {
-    const locationQuery = `latitude=${location.latitude}&longitude=${location.longitude}&timezone=${encodeURIComponent(location.timezone)}&forecast_days=16`;
-    const modelLocationQuery = `latitude=${location.latitude}&longitude=${location.longitude}&timezone=${encodeURIComponent(location.timezone)}&forecast_days=5`;
+    const locationQuery = `latitude=${location.latitude}&longitude=${location.longitude}&timezone=${encodeURIComponent(location.timezone)}&forecast_days=16&wind_speed_unit=ms`;
+    const modelLocationQuery = `latitude=${location.latitude}&longitude=${location.longitude}&timezone=${encodeURIComponent(location.timezone)}&forecast_days=5&wind_speed_unit=ms`;
     const modelDaily =
       "weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,wind_speed_10m_max";
     const bestUrl = `https://api.open-meteo.com/v1/forecast?${locationQuery}&current=temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code&hourly=temperature_2m,relative_humidity_2m,precipitation_probability,weather_code,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum,wind_speed_10m_max`;
