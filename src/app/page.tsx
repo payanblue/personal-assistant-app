@@ -2490,9 +2490,23 @@ function WeatherView({
 
 function ChargerView({
   chargers,
+  setChargers,
 }: {
   chargers: ChargerFavorite[];
+  setChargers: (chargers: ChargerFavorite[]) => void;
 }) {
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [draft, setDraft] = useState<ChargerFavorite | null>(null);
+  const beginEdit = (charger: ChargerFavorite) => {
+    setDraft({ ...charger });
+    setEditingId(charger.id);
+  };
+  const saveEdit = () => {
+    if (!draft || !draft.name.trim() || !draft.address.trim()) return;
+    setChargers(chargers.map((charger) => charger.id === draft.id ? draft : charger));
+    setEditingId(null);
+    setDraft(null);
+  };
   return (
     <>
       <PageHeader title="충전" />
@@ -2510,27 +2524,34 @@ function ChargerView({
           <span className="count">{chargers.length}곳</span>
         </div>
         <div className="charger-list">
-          {chargers.map((charger) => (
-            <button className="charger-card charger-card-link" key={charger.id} onClick={() => openNaverMap(charger.address)}>
+          {chargers.map((charger) => editingId === charger.id && draft ? (
+            <article className="charger-card charger-edit" key={charger.id}>
+              <label>충전소 이름<input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></label>
+              <label>주소<input value={draft.address} onChange={(event) => setDraft({ ...draft, address: event.target.value })} /></label>
+              <label>운영사<input value={draft.operator} onChange={(event) => setDraft({ ...draft, operator: event.target.value })} /></label>
+              <div className="charger-edit-grid">
+                <label>완속 기수<input type="number" min="0" value={draft.slowCount} onChange={(event) => setDraft({ ...draft, slowCount: Number(event.target.value) })} /></label>
+                <label>급속 기수<input type="number" min="0" value={draft.fastCount} onChange={(event) => setDraft({ ...draft, fastCount: Number(event.target.value) })} /></label>
+              </div>
+              <div className="charger-edit-actions"><button onClick={() => { setEditingId(null); setDraft(null); }}>취소</button><button className="save" onClick={saveEdit}>저장</button></div>
+            </article>
+          ) : (
+            <article className="charger-card" key={charger.id}>
               <div className="charger-card-head">
                 <span>⚡</span>
                 <div>
                   <strong>{charger.name}</strong>
-                  <small>{charger.operator} · {charger.speed}</small>
+                  <small>{charger.address}</small>
                 </div>
-                <em>바로가기</em>
+                <button className="charger-edit-button" onClick={() => beginEdit(charger)}>수정</button>
               </div>
               <div className="charger-counts"><span>완속 <b>{charger.slowCount}기</b></span><span>급속 <b>{charger.fastCount}기</b></span></div>
-              <div className="charger-prices">
-                <span>회원 <b>{charger.memberPrice}/kWh</b></span>
-                <span>비회원 <b>{charger.guestPrice}/kWh</b></span>
-              </div>
-              <span className="charger-route">네이버지도에서 확인하기 <b>›</b></span>
-            </button>
+              <button className="charger-route" onClick={() => openNaverMap(charger.address)}>네이버지도에서 확인하기 <b>›</b></button>
+            </article>
           ))}
         </div>
       </section>
-      <p className="charger-note">충전 가능 여부와 최신 요금은 카드에서 열리는 네이버지도로 확인하세요.</p>
+      <p className="charger-note">충전 가능 여부와 최신 정보는 네이버지도에서 확인하세요. 수정한 즐겨찾기는 이 기기에 저장됩니다.</p>
     </>
   );
 }
@@ -2895,7 +2916,7 @@ export default function Home() {
         openVoice={() => setVoiceOpen(true)}
       />
     ),
-    charge: <ChargerView chargers={chargers} />,
+    charge: <ChargerView chargers={chargers} setChargers={setChargers} />,
     more: (
       <MoreView
         go={navigateTab}
