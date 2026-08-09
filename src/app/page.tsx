@@ -1186,7 +1186,10 @@ function WorkView({
         if (from < 0 || to < 0) return current;
         const next = [...current];
         const [moved] = next.splice(from, 1);
-        next.splice(to + (dragAfterTarget.current && from > to ? 1 : 0), 0, moved);
+        let insertAt = to;
+        if (from < to) insertAt -= 1;
+        if (dragAfterTarget.current) insertAt += 1;
+        next.splice(insertAt, 0, moved);
         return next;
       });
       dragSourceId.current = null;
@@ -2185,9 +2188,9 @@ function WeatherView({
         <button onClick={back}>‹</button>
         <div>
           <p className="eyebrow">무료 다중모델 예보</p>
-          <h1>{location.name} 날씨</h1>
+          <h1><em className="location-name">{location.name}</em> 날씨</h1>
         </div>
-        <span>{location.area}</span>
+        <span>{locationShortName(location)}</span>
       </header>
       <section className="location-search">
         <div>
