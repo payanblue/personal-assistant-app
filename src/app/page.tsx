@@ -2500,14 +2500,19 @@ function ChargerView({
   setChargers: (chargers: ChargerFavorite[]) => void;
 }) {
   const [provider, setProvider] = useState("Turu Charger");
+  const [speedOrder, setSpeedOrder] = useState<"slow-first" | "slow-only" | "fast-only">("slow-first");
   const [editingId, setEditingId] = useState<number | null>(null);
   const [draft, setDraft] = useState<ChargerFavorite | null>(null);
   const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [locationMessage, setLocationMessage] = useState("");
   const providers = ["전체", ...Array.from(new Set(chargers.map((charger) => charger.operator)))];
   const visibleChargers = (provider === "전체" ? chargers : chargers.filter((charger) => charger.operator === provider))
+    .filter((charger) => speedOrder === "slow-only" ? charger.speed.includes("완속") : speedOrder === "fast-only" ? charger.speed.includes("급속") : true)
     .map((charger) => ({ ...charger, gpsDistance: userLocation ? distanceKm(userLocation.latitude, userLocation.longitude, charger.latitude, charger.longitude) : null }))
-    .sort((a, b) => (a.gpsDistance ?? Number.MAX_SAFE_INTEGER) - (b.gpsDistance ?? Number.MAX_SAFE_INTEGER));
+    .sort((a, b) => {
+      if (speedOrder === "slow-first" && a.speed.includes("완속") !== b.speed.includes("완속")) return a.speed.includes("완속") ? -1 : 1;
+      return (a.gpsDistance ?? Number.MAX_SAFE_INTEGER) - (b.gpsDistance ?? Number.MAX_SAFE_INTEGER);
+    });
   const findNearby = () => {
     if (!navigator.geolocation) { setLocationMessage("이 기기에서는 GPS 위치를 사용할 수 없어요."); return; }
     setLocationMessage("현재 위치를 확인하고 있어요…");
@@ -2541,11 +2546,11 @@ function ChargerView({
       <div className="charge-filters" aria-label="충전소 필터">
         {providers.slice(0, 3).map((item) => <button key={item} className={provider === item ? "active" : ""} onClick={() => setProvider(item)}>{item}</button>)}
         {providers.length > 3 && <select aria-label="운영사 선택" value={provider} onChange={(event) => setProvider(event.target.value)}>{providers.map((item) => <option value={item} key={item}>{item}</option>)}</select>}
-        <button>급속 · 완속</button>
+        <select aria-label="충전 방식 정렬" value={speedOrder} onChange={(event) => setSpeedOrder(event.target.value as typeof speedOrder)}><option value="slow-first">완속 우선</option><option value="slow-only">완속만</option><option value="fast-only">급속만</option></select>
       </div>
       <section className="nearby-search">
-        <div><strong>내 주변 충전소</strong><span>{locationMessage || "GPS 위치를 기준으로 즐겨찾기를 거리순으로 정렬해요"}</span></div>
-        <button onClick={findNearby}>⌖ 현재 위치</button>
+        <div><strong>현재 위치 기준 정렬</strong><span>{locationMessage || "즐겨찾기를 GPS 거리순으로 정렬해요"}</span></div>
+        <button onClick={findNearby}>⌖ 위치 확인</button>
       </section>
       <section className="section-block charger-section">
         <div className="section-title">
@@ -2581,7 +2586,7 @@ function ChargerView({
           ))}
         </div>
       </section>
-      <p className="charger-note">카드의 대수와 요금은 현재 직접 수정 가능한 즐겨찾기 정보예요. 실시간 상태·요금 자동 갱신은 충전 API 연결 후 반영됩니다.</p>
+      <p className="charger-note">카드의 대수와 요금은 현재 직접 수정 가능한 즐겨찾기 정보예요. GPS 주변 전체 충전소·이름 자동완성·실시간 상태와 요금은 무료 충전정보 API 키 연결 후 자동으로 표시됩니다.</p>
     </>
   );
 }
