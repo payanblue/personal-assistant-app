@@ -57,6 +57,8 @@ type WeatherDaily = {
   temperature_2m_min: number[];
   precipitation_sum: number[];
   wind_speed_10m_max: number[];
+  sunrise?: string[];
+  sunset?: string[];
   precipitation_probability_max?: number[];
 };
 
@@ -392,7 +394,7 @@ function HomeWeather({
 
   useEffect(() => {
     const common = `latitude=${location.latitude}&longitude=${location.longitude}&timezone=${encodeURIComponent(location.timezone)}&forecast_days=2&wind_speed_unit=ms`;
-    const forecastUrl = `https://api.open-meteo.com/v1/forecast?${common}&current=temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code&hourly=temperature_2m,relative_humidity_2m,precipitation_probability,weather_code,wind_speed_10m`;
+    const forecastUrl = `https://api.open-meteo.com/v1/forecast?${common}&current=temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code&hourly=temperature_2m,relative_humidity_2m,precipitation_probability,weather_code,wind_speed_10m&daily=sunrise,sunset`;
     const airUrl = `https://air-quality-api.open-meteo.com/v1/air-quality?${common}&hourly=pm10,pm2_5`;
     Promise.all([fetch(forecastUrl), fetch(airUrl)])
       .then(async ([weatherResponse, airResponse]) => {
@@ -451,9 +453,9 @@ function HomeWeather({
           </p>
           <strong>{Math.round(forecast.current?.temperature_2m ?? 0)}°</strong>
           <span>
-            체감 {Math.round(forecast.current?.apparent_temperature ?? 0)}° ·
-            습도 {forecast.current?.relative_humidity_2m ?? 0}% · 바람{" "}
-            {forecast.current?.wind_speed_10m ?? 0}m/s
+            체감 {(forecast.current?.apparent_temperature ?? 0).toFixed(1)}° ·
+            습도 {(forecast.current?.relative_humidity_2m ?? 0).toFixed(1)}% · 바람{" "}
+            {(forecast.current?.wind_speed_10m ?? 0).toFixed(1)}m/s
           </span>
         </div>
         <b>{weatherIcon(forecast.current?.weather_code ?? 3)}</b>
@@ -470,6 +472,7 @@ function HomeWeather({
           <small>{pm25Grade.label}</small>
         </div>
       </div>
+      <div className="sun-times"><span>🌅 일출 {forecast.daily.sunrise?.[0]?.slice(11, 16) ?? "-"}</span><span>🌇 일몰 {forecast.daily.sunset?.[0]?.slice(11, 16) ?? "-"}</span></div>
       <div className="hourly-heading">
         <strong>24시간 예보</strong>
         <span>옆으로 밀어 확인</span>
@@ -1176,7 +1179,7 @@ function WorkView({
     let activeRow: HTMLElement | null = null;
     let startY = 0;
     const stop = () => {
-      if (activeRow) { activeRow.style.transform = ""; activeRow.style.pointerEvents = ""; }
+      if (activeRow) { activeRow.style.transform = ""; activeRow.style.visibility = ""; }
       activeRow = null;
       const sourceId = dragSourceId.current;
       const targetId = dragTargetId.current;
@@ -1199,9 +1202,9 @@ function WorkView({
     const move = (event: PointerEvent) => {
       if (dragSourceId.current === null) return;
       if (activeRow) activeRow.style.transform = `translateY(${event.clientY - startY}px) scale(1.035)`;
-      const target = document
-        .elementFromPoint(event.clientX, event.clientY)
-        ?.closest<HTMLElement>(".work-line");
+      if (activeRow) activeRow.style.visibility = "hidden";
+      const target = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>(".work-line");
+      if (activeRow) activeRow.style.visibility = "";
       const list = target?.parentElement;
       if (!target || !list) return;
       const targetIndex = Array.from(list.querySelectorAll(":scope > .work-line")).indexOf(target);
@@ -1220,7 +1223,6 @@ function WorkView({
       if (sourceIndex >= 0) {
         activeRow = row;
         startY = event.clientY;
-        row.style.pointerEvents = "none";
         row.setPointerCapture?.(event.pointerId);
         dragSourceId.current = visibleItems[sourceIndex].id;
         dragTargetId.current = visibleItems[sourceIndex].id;
