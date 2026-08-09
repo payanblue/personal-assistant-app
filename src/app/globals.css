@@ -291,10 +291,12 @@ h1 {
 .charger-card-head > span { display: grid; width: 34px; height: 34px; place-items: center; border-radius: 11px; background: #d8ebe0; color: var(--green); }
 .charger-card-head div { min-width: 0; flex: 1; display: grid; gap: 3px; }
 .charger-card-head strong { font-size: 14px; }
+.charger-name { padding: 0; border: 0; background: transparent; color: var(--ink); font: inherit; font-size: 14px; font-weight: 700; text-align: left; text-decoration: underline; text-decoration-color: #aac4b2; text-underline-offset: 3px; }
 .charger-card-head small { color: var(--muted); font-size: 11px; }
 .charger-card-head em { padding: 5px 7px; border-radius: 10px; background: #e5eee8; color: var(--green); font-size: 10px; font-style: normal; }
 .charger-edit-button { flex: 0 0 auto; padding: 7px 9px; border: 0; border-radius: 9px; background: #dce9e0; color: var(--green); font-size: 10px; font-weight: 800; }
 .charger-statuses { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; width: 100%; margin-top: 13px; padding: 0; border: 0; background: transparent; text-align: left; }.charger-statuses span { display: grid; gap: 4px; padding: 9px; border-radius: 10px; font-size: 9px; }.charger-statuses b { font-size: 13px; }.charger-statuses .ready { background: #dff2e4; color: #237045; }.charger-statuses .busy { background: #fff0d3; color: #9b6419; }.charger-statuses .down { background: #f0e6e3; color: #8d5047; }
+.charger-counts { display: flex; gap: 8px; margin-top: 13px; }.charger-counts span { padding: 8px 10px; border-radius: 10px; background: #e4eee7; color: #456452; font-size: 10px; }.charger-counts b { margin-left: 4px; color: var(--ink); font-size: 13px; }
 .charger-prices { display: flex; gap: 14px; margin: 14px 0 12px; color: var(--muted); font-size: 11px; }
 .charger-prices b { color: var(--ink); }
 .charger-card footer { display: flex; justify-content: space-between; padding-top: 11px; border-top: 1px solid #d5ded8; color: var(--muted); font-size: 11px; }
