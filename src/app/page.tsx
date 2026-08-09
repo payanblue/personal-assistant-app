@@ -2502,7 +2502,7 @@ function ChargerView({
     setEditingId(charger.id);
   };
   const saveEdit = () => {
-    if (!draft || !draft.name.trim() || !draft.address.trim()) return;
+    if (!draft || !draft.name.trim()) return;
     setChargers(chargers.map((charger) => charger.id === draft.id ? draft : charger));
     setEditingId(null);
     setDraft(null);
@@ -2510,14 +2510,14 @@ function ChargerView({
   return (
     <>
       <PageHeader title="충전" />
-      <section className="charger-intro">
+      <button className="charger-intro charger-nearby-button" onClick={() => openNaverMap("전기차 충전소")}>
         <div>
           <p>캐스퍼 일렉트릭</p>
           <h2>즐겨찾기 충전소</h2>
-          <span>카드를 누르면 네이버지도로 바로 열려요</span>
+          <span>누르면 현재 위치 주변 충전소를 네이버지도에서 찾아요</span>
         </div>
         <b>⚡</b>
-      </section>
+      </button>
       <section className="section-block charger-section">
         <div className="section-title">
           <h2>내 즐겨찾기</h2>
@@ -2527,12 +2527,6 @@ function ChargerView({
           {chargers.map((charger) => editingId === charger.id && draft ? (
             <article className="charger-card charger-edit" key={charger.id}>
               <label>충전소 이름<input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></label>
-              <label>주소<input value={draft.address} onChange={(event) => setDraft({ ...draft, address: event.target.value })} /></label>
-              <label>운영사<input value={draft.operator} onChange={(event) => setDraft({ ...draft, operator: event.target.value })} /></label>
-              <div className="charger-edit-grid">
-                <label>완속 기수<input type="number" min="0" value={draft.slowCount} onChange={(event) => setDraft({ ...draft, slowCount: Number(event.target.value) })} /></label>
-                <label>급속 기수<input type="number" min="0" value={draft.fastCount} onChange={(event) => setDraft({ ...draft, fastCount: Number(event.target.value) })} /></label>
-              </div>
               <div className="charger-edit-actions"><button onClick={() => { setEditingId(null); setDraft(null); }}>취소</button><button className="save" onClick={saveEdit}>저장</button></div>
             </article>
           ) : (
@@ -2541,12 +2535,10 @@ function ChargerView({
                 <span>⚡</span>
                 <div>
                   <strong>{charger.name}</strong>
-                  <small>{charger.address}</small>
                 </div>
                 <button className="charger-edit-button" onClick={() => beginEdit(charger)}>수정</button>
               </div>
-              <div className="charger-counts"><span>완속 <b>{charger.slowCount}기</b></span><span>급속 <b>{charger.fastCount}기</b></span></div>
-              <button className="charger-route" onClick={() => openNaverMap(charger.address)}>네이버지도에서 확인하기 <b>›</b></button>
+              <button className="charger-route" onClick={() => openNaverMap(charger.name)}>네이버지도에서 확인하기 <b>›</b></button>
             </article>
           ))}
         </div>
