@@ -1995,7 +1995,7 @@ function CalendarView({
           </div>
         )}
       </section>
-      {!trash && <section className="section-block anniversary-list"><div className="section-title"><h2>기념일 · 생일</h2><span className="count">{anniversaries.length}개</span></div>{anniversaries.length ? anniversaries.map(event => <button key={event.id} onClick={() => openEditEvent(event)}><span>{event.calendarType === "lunar" ? "☾ 음력" : "☀ 양력"}</span><strong>{event.title}</strong><small>{nextOccurrence(event)?.replaceAll("-", ".")} · 매년</small></button>) : <p>매년 반복으로 등록한 생일과 기념일이 여기에 표시됩니다.</p>}</section>}
+      {!trash && <section className="section-block anniversary-list"><div className="section-title"><h2>기념일 · 생일</h2><span className="count">{anniversaries.length}개</span></div>{anniversaries.length ? <div className="anniversary-cards">{anniversaries.map(event => <button key={event.id} onClick={() => openEditEvent(event)}><span className="anniversary-icon">{event.calendarType === "lunar" ? "☾" : "✦"}</span><div><strong>{event.title}</strong><small>{nextOccurrence(event)?.replaceAll("-", ".")} · 매년 {event.calendarType === "lunar" ? "음력" : "양력"}</small></div><b>›</b></button>)}</div> : <p>매년 반복으로 등록한 생일과 기념일이 여기에 표시됩니다.</p>}</section>}
       {!trash && !writing && (
         <button className="floating-button" onClick={openNewEvent}>
           ＋ 새 일정
