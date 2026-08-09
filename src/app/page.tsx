@@ -1097,6 +1097,7 @@ function WorkView({
 }) {
   const [filter, setFilter] = useState<"all" | "trash">("all");
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [draggingId, setDraggingId] = useState<number | null>(null);
   const [title, setTitle] = useState("");
   const quickInputRef = useRef<HTMLInputElement | null>(null);
   const visibleItems = items.filter((item) =>
@@ -1171,6 +1172,7 @@ function WorkView({
     let sourceIndex = -1;
     const stop = () => {
       sourceIndex = -1;
+      setDraggingId(null);
     };
     const move = (event: PointerEvent) => {
       if (sourceIndex < 0) return;
@@ -1211,6 +1213,7 @@ function WorkView({
         list.querySelectorAll(":scope > .work-line"),
       ).indexOf(row);
       if (sourceIndex >= 0) {
+        setDraggingId(visibleItems[sourceIndex].id);
         event.preventDefault();
         document.addEventListener("pointermove", move);
         document.addEventListener("pointerup", stop, { once: true });
@@ -1294,7 +1297,7 @@ function WorkView({
             </article>
           ) : (
             <article
-              className={`work-line ${item.completed ? "completed" : ""}`}
+              className={`work-line ${item.completed ? "completed" : ""} ${draggingId === item.id ? "dragging" : ""}`}
               key={item.id}
             >
               <span className="drag-handle" aria-hidden="true">
@@ -2008,6 +2011,11 @@ function weatherIcon(code: number) {
   return "☁";
 }
 
+function locationShortName(location: WeatherLocation) {
+  const region = location.area.includes("부산") ? "부산" : location.area.includes("울산") ? "울산" : location.area.includes("서울") ? "서울" : location.area.includes("대구") ? "대구" : location.area.includes("인천") ? "인천" : location.area.includes("광주") ? "광주" : location.area.includes("대전") ? "대전" : location.area.includes("제주") ? "제주" : location.area.split(" ")[0];
+  return `${location.name}(${region || "저장"})`;
+}
+
 function WeatherView({
   back,
   location,
@@ -2114,14 +2122,19 @@ function WeatherView({
   const useGpsLocation = () => {
     if (!navigator.geolocation) return;
     navigator.geolocation.getCurrentPosition(
-      (position) => {
-        setCandidate({
-          name: "현재 위치",
-          area: "GPS 좌표",
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude,
-          timezone: "Asia/Seoul",
-        });
+      async (position) => {
+        const latitude = position.coords.latitude;
+        const longitude = position.coords.longitude;
+        try {
+          const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&addressdetails=1&accept-language=ko&lat=${latitude}&lon=${longitude}`);
+          const place = await response.json() as PlaceSearchResult;
+          const address = place.address ?? {};
+          const name = address.suburb ?? address.neighbourhood ?? address.village ?? address.town ?? address.city ?? "현재 위치";
+          const area = place.display_name || "현재 위치";
+          setCandidate({ name, area, latitude, longitude, timezone: "Asia/Seoul" });
+        } catch {
+          setCandidate({ name: "현재 위치", area: "GPS 위치", latitude, longitude, timezone: "Asia/Seoul" });
+        }
       },
       () => window.alert("현재 위치를 가져오지 못했어요. 위치 권한을 허용해 주세요."),
       { enableHighAccuracy: false, timeout: 8000, maximumAge: 300000 },
@@ -2185,10 +2198,10 @@ function WeatherView({
           전국 동·읍·면, 시·군·구를 검색해 날씨 위치로 저장할 수 있어요.
         </p>
         <button className="gps-location-button" onClick={useGpsLocation}>⌖ 현재 위치(GPS) 찾기</button>
-        {candidate && <div className="location-candidate"><strong>{candidate.name}</strong><span>{candidate.area} · {candidate.latitude.toFixed(4)}, {candidate.longitude.toFixed(4)}</span><button onClick={saveCandidate}>이 위치 저장</button></div>}
+        {candidate && <div className="location-candidate"><strong>{locationShortName(candidate)}</strong><span>{candidate.area}</span><button onClick={saveCandidate}>이 위치 저장</button></div>}
         <p className="location-hint">저장한 위치 ({savedLocations.length}/5)</p>
         <div className="quick-locations">
-          {savedLocations.map((item) => <button className={item.name === location.name ? "selected" : ""} key={`${item.latitude}-${item.longitude}`} onClick={() => { setData(null); setError(false); setLocation(item); }}>{item.name}</button>)}
+          {savedLocations.map((item) => <button className={item.name === location.name ? "selected" : ""} key={`${item.latitude}-${item.longitude}`} onClick={() => { setData(null); setError(false); setLocation(item); }}>{locationShortName(item)}</button>)}
         </div>
         <div className="quick-locations">
           {quickWeatherLocations.map((item) => (
