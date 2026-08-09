@@ -1436,6 +1436,7 @@ function CalendarView({
   const [googleToken, setGoogleToken] = useState("");
   const [googleStatus, setGoogleStatus] = useState("");
   const [syncingId, setSyncingId] = useState<number | null>(null);
+  const [anniversariesOpen, setAnniversariesOpen] = useState(false);
   const googleClientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
   const year = visibleMonth.getFullYear();
   const month = visibleMonth.getMonth();
@@ -1454,6 +1455,11 @@ function CalendarView({
         a.time.localeCompare(b.time),
     );
   const anniversaries = events.filter((event) => !event.deleted && event.repeatYearly).sort((a, b) => (nextOccurrence(a) ?? "9999-12-31").localeCompare(nextOccurrence(b) ?? "9999-12-31"));
+  const monthEvents = events.filter(event => {
+    if (event.deleted) return false;
+    const occurrence = event.repeatYearly ? occurrenceInYear(event, year) : event.date;
+    return occurrence?.startsWith(`${year}-${String(month + 1).padStart(2, "0")}`);
+  }).sort((a, b) => (a.repeatYearly ? occurrenceInYear(a, year) ?? "" : a.date).localeCompare(b.repeatYearly ? occurrenceInYear(b, year) ?? "" : b.date) || a.time.localeCompare(b.time));
   const openNewEvent = () => {
     setEditingId(null);
     setTitle("");
@@ -1891,6 +1897,7 @@ function CalendarView({
           </footer>
         </section>
       )}
+      {!trash && <section className="section-block month-event-list"><div className="section-title"><h2>이 달의 일정</h2><span className="count">{monthEvents.length}개</span></div>{monthEvents.length ? monthEvents.map(event => { const occurrence = event.repeatYearly ? occurrenceInYear(event, year) : event.date; return <button key={event.id} onClick={() => { if (occurrence) setSelectedDate(occurrence); }}><span>{occurrence?.slice(5).replace("-", ".")}</span><div><strong>{event.title}</strong><small>{event.allDay ? "종일" : event.time}{event.repeatYearly ? " · 매년" : ""}</small></div><b>›</b></button>; }) : <p>이 달에 등록된 일정이 없어요.</p>}</section>}
       <section className="section-block calendar-list">
         <div className="section-title">
           <h2>
@@ -1995,7 +2002,7 @@ function CalendarView({
           </div>
         )}
       </section>
-      {!trash && <section className="section-block anniversary-list"><div className="section-title"><h2>기념일 · 생일</h2><span className="count">{anniversaries.length}개</span></div>{anniversaries.length ? <div className="anniversary-cards">{anniversaries.map(event => <button className="anniversary-card" key={event.id} onClick={() => openEditEvent(event)}><span className="anniversary-icon">{event.calendarType === "lunar" ? "☾" : "✦"}</span><div><strong>{event.title}</strong><small>{nextOccurrence(event)?.replaceAll("-", ".")} · 매년 {event.calendarType === "lunar" ? "음력" : "양력"}</small></div><b>›</b></button>)}</div> : <p>매년 반복으로 등록한 생일과 기념일이 여기에 표시됩니다.</p>}</section>}
+      {!trash && <section className="section-block anniversary-list"><button className="anniversary-toggle" onClick={() => setAnniversariesOpen(value => !value)}><span>✦</span><div><strong>기념일 · 생일</strong><small>매년 반복 일정 {anniversaries.length}개</small></div><b>{anniversariesOpen ? "⌃" : "⌄"}</b></button>{anniversariesOpen && (anniversaries.length ? <div className="anniversary-cards">{anniversaries.map(event => <button className="anniversary-card" key={event.id} onClick={() => openEditEvent(event)}><span className="anniversary-icon">{event.calendarType === "lunar" ? "☾" : "✦"}</span><div><strong>{event.title}</strong><small>{nextOccurrence(event)?.replaceAll("-", ".")} · 매년 {event.calendarType === "lunar" ? "음력" : "양력"}</small></div><b>›</b></button>)}</div> : <p>매년 반복으로 등록한 생일과 기념일이 없어요.</p>)}</section>}
       {!trash && !writing && (
         <button className="floating-button" onClick={openNewEvent}>
           ＋ 새 일정
