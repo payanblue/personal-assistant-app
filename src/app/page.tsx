@@ -884,11 +884,11 @@ function HomeView({
           {chargers.map((charger) => (
             <button
               key={charger.name}
-              onClick={() => openNaverMap(charger.address)}
+              onClick={() => openNaverMap(charger.name)}
             >
               <span>⚡</span>
               <strong>{charger.name}</strong>
-              <small>완속 {charger.slowCount}기 · 급속 {charger.fastCount}기</small>
+              <small>네이버지도에서 확인</small>
             </button>
           ))}
         </div>
