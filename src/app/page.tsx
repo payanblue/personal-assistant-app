@@ -344,16 +344,18 @@ type ChargerFavorite = {
   ready: number;
   busy: number;
   down: number;
+  slowCount: number;
+  fastCount: number;
   latitude: number;
   longitude: number;
 };
 
 const defaultChargers: ChargerFavorite[] = [
-  { id: 1, name: "성안동 공영주차장", address: "울산 중구 성안동 공영주차장", operator: "Turu Charger", speed: "완속 7kW", distance: "0.8km", memberPrice: "292원", guestPrice: "324원", ready: 2, busy: 1, down: 0, latitude: 35.5757, longitude: 129.3256 },
-  { id: 2, name: "울산 중구청", address: "울산광역시 중구 중앙길 1", operator: "Turu Charger", speed: "급속 100kW", distance: "2.1km", memberPrice: "347원", guestPrice: "389원", ready: 3, busy: 2, down: 0, latitude: 35.5681, longitude: 129.3327 },
-  { id: 3, name: "울산 종합운동장", address: "울산광역시 중구 염포로 55", operator: "Turu Charger", speed: "완속 7kW", distance: "4.7km", memberPrice: "292원", guestPrice: "324원", ready: 4, busy: 0, down: 1, latitude: 35.5615, longitude: 129.3499 },
-  { id: 4, name: "부산 본가 주변", address: "부산광역시", operator: "현대 E-pit", speed: "급속 100kW", distance: "즐겨찾기", memberPrice: "확인 필요", guestPrice: "확인 필요", ready: 1, busy: 2, down: 0, latitude: 35.1796, longitude: 129.0756 },
-  { id: 5, name: "자주 가는 업무 현장", address: "울산광역시", operator: "환경부", speed: "완속 7kW", distance: "즐겨찾기", memberPrice: "292원", guestPrice: "324원", ready: 1, busy: 0, down: 0, latitude: 35.576, longitude: 129.326 },
+  { id: 1, name: "성안동 공영주차장", address: "울산 중구 성안동 공영주차장", operator: "Turu Charger", speed: "완속 7kW", distance: "0.8km", memberPrice: "292원", guestPrice: "324원", ready: 2, busy: 1, down: 0, slowCount: 3, fastCount: 0, latitude: 35.5757, longitude: 129.3256 },
+  { id: 2, name: "울산 중구청", address: "울산광역시 중구 중앙길 1", operator: "Turu Charger", speed: "급속 100kW", distance: "2.1km", memberPrice: "347원", guestPrice: "389원", ready: 3, busy: 2, down: 0, slowCount: 1, fastCount: 5, latitude: 35.5681, longitude: 129.3327 },
+  { id: 3, name: "울산 종합운동장", address: "울산광역시 중구 염포로 55", operator: "Turu Charger", speed: "완속 7kW", distance: "4.7km", memberPrice: "292원", guestPrice: "324원", ready: 4, busy: 0, down: 1, slowCount: 5, fastCount: 0, latitude: 35.5615, longitude: 129.3499 },
+  { id: 4, name: "부산 본가 주변", address: "부산광역시", operator: "현대 E-pit", speed: "급속 100kW", distance: "즐겨찾기", memberPrice: "확인 필요", guestPrice: "확인 필요", ready: 1, busy: 2, down: 0, slowCount: 0, fastCount: 3, latitude: 35.1796, longitude: 129.0756 },
+  { id: 5, name: "자주 가는 업무 현장", address: "울산광역시", operator: "환경부", speed: "완속 7kW", distance: "즐겨찾기", memberPrice: "292원", guestPrice: "324원", ready: 1, busy: 0, down: 0, slowCount: 2, fastCount: 1, latitude: 35.576, longitude: 129.326 },
 ];
 
 function distanceKm(fromLat: number, fromLng: number, toLat: number, toLng: number) {
@@ -892,7 +894,7 @@ function HomeView({
             >
               <span>⚡</span>
               <strong>{charger.name}</strong>
-              <small>{charger.speed} · 가능 {charger.ready} · 충전 중 {charger.busy}</small>
+              <small>완속 {charger.slowCount}기 · 급속 {charger.fastCount}기</small>
             </button>
           ))}
         </div>
@@ -2563,7 +2565,8 @@ function ChargerView({
               <label>충전소 이름<input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })}/></label>
               <label>주소<input value={draft.address} onChange={(event) => setDraft({ ...draft, address: event.target.value })}/></label>
               <div className="charger-edit-grid"><label>운영사<input value={draft.operator} onChange={(event) => setDraft({ ...draft, operator: event.target.value })}/></label><label>충전 방식<input value={draft.speed} onChange={(event) => setDraft({ ...draft, speed: event.target.value })}/></label></div>
-              <div className="charger-edit-grid"><label>사용 가능<input type="number" min="0" value={draft.ready} onChange={(event) => setDraft({ ...draft, ready: Number(event.target.value) })}/></label><label>충전 중<input type="number" min="0" value={draft.busy} onChange={(event) => setDraft({ ...draft, busy: Number(event.target.value) })}/></label><label>사용 불가<input type="number" min="0" value={draft.down} onChange={(event) => setDraft({ ...draft, down: Number(event.target.value) })}/></label></div>
+              <div className="charger-edit-grid"><label>완속 기수<input type="number" min="0" value={draft.slowCount} onChange={(event) => setDraft({ ...draft, slowCount: Number(event.target.value) })}/></label><label>급속 기수<input type="number" min="0" value={draft.fastCount} onChange={(event) => setDraft({ ...draft, fastCount: Number(event.target.value) })}/></label></div>
+              <div className="charger-edit-grid"><label>회원 요금<input value={draft.memberPrice} onChange={(event) => setDraft({ ...draft, memberPrice: event.target.value })}/></label><label>비회원 요금<input value={draft.guestPrice} onChange={(event) => setDraft({ ...draft, guestPrice: event.target.value })}/></label></div>
               <div className="charger-edit-actions"><button onClick={() => { setEditingId(null); setDraft(null); }}>취소</button><button className="save" onClick={saveEdit}>저장</button></div>
             </article>
           ) : (
@@ -2571,12 +2574,12 @@ function ChargerView({
               <div className="charger-card-head">
                 <span>⚡</span>
                 <div>
-                  <strong>{charger.name}</strong>
+                  <button className="charger-name" onClick={() => openNaverMap(charger.address)}>{charger.name}</button>
                   <small>{charger.operator} · {charger.gpsDistance !== null ? `${charger.gpsDistance.toFixed(1)}km` : charger.distance} · {charger.speed}</small>
                 </div>
                 <button className="charger-edit-button" onClick={() => beginEdit(charger)}>수정</button>
               </div>
-              <button className="charger-statuses" onClick={() => openNaverMap(charger.address)} aria-label={`${charger.name} 네이버지도 길안내`}><span className="ready">사용 가능 <b>{charger.ready}대</b></span><span className="busy">충전 중 <b>{charger.busy}대</b></span><span className="down">사용 불가 <b>{charger.down}대</b></span></button>
+              <div className="charger-counts"><span>완속 <b>{charger.slowCount}기</b></span><span>급속 <b>{charger.fastCount}기</b></span></div>
               <div className="charger-prices">
                 <span>회원 <b>{charger.memberPrice}/kWh</b></span>
                 <span>비회원 <b>{charger.guestPrice}/kWh</b></span>
@@ -2586,7 +2589,7 @@ function ChargerView({
           ))}
         </div>
       </section>
-      <p className="charger-note">카드의 대수와 요금은 현재 직접 수정 가능한 즐겨찾기 정보예요. GPS 주변 전체 충전소·이름 자동완성·실시간 상태와 요금은 무료 충전정보 API 키 연결 후 자동으로 표시됩니다.</p>
+      <p className="charger-note">충전 상태는 충전소 이름을 눌러 네이버지도에서 확인하세요. 요금은 직접 수정 가능한 즐겨찾기 정보라 실제와 다를 수 있습니다.</p>
     </>
   );
 }
