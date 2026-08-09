@@ -350,6 +350,8 @@ type ChargerFavorite = {
   longitude: number;
 };
 
+type NearbyCharger = Pick<ChargerFavorite, "id" | "name" | "operator" | "address" | "latitude" | "longitude" | "slowCount" | "fastCount" | "memberPrice" | "guestPrice"> & { gpsDistance?: number };
+
 const defaultChargers: ChargerFavorite[] = [
   { id: 1, name: "성안동 공영주차장", address: "울산 중구 성안동 공영주차장", operator: "Turu Charger", speed: "완속 7kW", distance: "0.8km", memberPrice: "292원", guestPrice: "324원", ready: 2, busy: 1, down: 0, slowCount: 3, fastCount: 0, latitude: 35.5757, longitude: 129.3256 },
   { id: 2, name: "울산 중구청", address: "울산광역시 중구 중앙길 1", operator: "Turu Charger", speed: "급속 100kW", distance: "2.1km", memberPrice: "347원", guestPrice: "389원", ready: 3, busy: 2, down: 0, slowCount: 1, fastCount: 5, latitude: 35.5681, longitude: 129.3327 },
@@ -2507,6 +2509,8 @@ function ChargerView({
   const [draft, setDraft] = useState<ChargerFavorite | null>(null);
   const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [locationMessage, setLocationMessage] = useState("");
+  const [nearbyChargers, setNearbyChargers] = useState<NearbyCharger[]>([]);
+  const [nearbyLoading, setNearbyLoading] = useState(false);
   const providers = ["전체", ...Array.from(new Set(chargers.map((charger) => charger.operator)))];
   const visibleChargers = (provider === "전체" ? chargers : chargers.filter((charger) => charger.operator === provider))
     .filter((charger) => speedOrder === "slow-only" ? charger.speed.includes("완속") : speedOrder === "fast-only" ? charger.speed.includes("급속") : true)
@@ -2515,14 +2519,42 @@ function ChargerView({
       if (speedOrder === "slow-first" && a.speed.includes("완속") !== b.speed.includes("완속")) return a.speed.includes("완속") ? -1 : 1;
       return (a.gpsDistance ?? Number.MAX_SAFE_INTEGER) - (b.gpsDistance ?? Number.MAX_SAFE_INTEGER);
     });
+  const loadNearbyChargers = async (latitude: number, longitude: number) => {
+    setNearbyLoading(true);
+    try {
+      const response = await fetch(`/api/chargers?lat=${latitude}&lng=${longitude}&radius=5000`);
+      const payload = (await response.json()) as { chargers?: NearbyCharger[] };
+      const ranked = (payload.chargers ?? []).map((charger) => ({ ...charger, gpsDistance: distanceKm(latitude, longitude, charger.latitude, charger.longitude) })).sort((a, b) => a.gpsDistance - b.gpsDistance);
+      setNearbyChargers(ranked);
+      setLocationMessage(ranked.length ? `현재 위치 주변 충전소 ${ranked.length}곳을 찾았어요.` : "주변 충전소 정보를 찾지 못했어요. 네이버지도에서 확인해 주세요.");
+    } catch {
+      setNearbyChargers([]);
+      setLocationMessage("주변 충전소 정보를 불러오지 못했어요. 잠시 후 다시 시도해 주세요.");
+    } finally { setNearbyLoading(false); }
+  };
   const findNearby = () => {
     if (!navigator.geolocation) { setLocationMessage("이 기기에서는 GPS 위치를 사용할 수 없어요."); return; }
     setLocationMessage("현재 위치를 확인하고 있어요…");
     navigator.geolocation.getCurrentPosition(
-      (position) => { setUserLocation(position.coords); setLocationMessage("현재 위치 기준으로 거리순 정렬했어요."); },
+      (position) => { const location = { latitude: position.coords.latitude, longitude: position.coords.longitude }; setUserLocation(location); setLocationMessage("현재 위치 주변 충전소를 찾고 있어요…"); void loadNearbyChargers(location.latitude, location.longitude); },
       () => setLocationMessage("위치 권한을 허용하면 내 주변 충전소를 찾을 수 있어요."),
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 },
     );
+  };
+  const autoFillFavorite = async () => {
+    if (!draft?.name.trim()) return;
+    try {
+      const response = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=3&accept-language=ko&q=${encodeURIComponent(`${draft.name} 전기차 충전소 대한민국`)}`);
+      const places = (await response.json()) as PlaceSearchResult[];
+      const place = places[0];
+      if (!place) throw new Error("not found");
+      const latitude = Number(place.lat); const longitude = Number(place.lon);
+      const stationResponse = await fetch(`/api/chargers?lat=${latitude}&lng=${longitude}&radius=1200`);
+      const stations = ((await stationResponse.json()) as { chargers?: NearbyCharger[] }).chargers ?? [];
+      const normalized = draft.name.replace(/\s/g, "").toLowerCase();
+      const match = stations.find((station) => station.name.replace(/\s/g, "").toLowerCase().includes(normalized) || normalized.includes(station.name.replace(/\s/g, "").toLowerCase())) ?? stations[0];
+      setDraft({ ...draft, address: match?.address ?? place.display_name, operator: match?.operator ?? draft.operator, latitude, longitude, slowCount: match?.slowCount ?? draft.slowCount, fastCount: match?.fastCount ?? draft.fastCount, memberPrice: match?.memberPrice !== "요금 확인" ? match.memberPrice : draft.memberPrice, guestPrice: match?.guestPrice !== "요금 확인" ? match.guestPrice : draft.guestPrice });
+    } catch { window.alert("이름으로 충전소를 찾지 못했어요. 주소를 직접 입력해 주세요."); }
   };
   const beginEdit = (charger: ChargerFavorite) => {
     setDraft({ ...charger });
@@ -2567,7 +2599,7 @@ function ChargerView({
               <div className="charger-edit-grid"><label>운영사<input value={draft.operator} onChange={(event) => setDraft({ ...draft, operator: event.target.value })}/></label><label>충전 방식<input value={draft.speed} onChange={(event) => setDraft({ ...draft, speed: event.target.value })}/></label></div>
               <div className="charger-edit-grid"><label>완속 기수<input type="number" min="0" value={draft.slowCount} onChange={(event) => setDraft({ ...draft, slowCount: Number(event.target.value) })}/></label><label>급속 기수<input type="number" min="0" value={draft.fastCount} onChange={(event) => setDraft({ ...draft, fastCount: Number(event.target.value) })}/></label></div>
               <div className="charger-edit-grid"><label>회원 요금<input value={draft.memberPrice} onChange={(event) => setDraft({ ...draft, memberPrice: event.target.value })}/></label><label>비회원 요금<input value={draft.guestPrice} onChange={(event) => setDraft({ ...draft, guestPrice: event.target.value })}/></label></div>
-              <div className="charger-edit-actions"><button onClick={() => { setEditingId(null); setDraft(null); }}>취소</button><button className="save" onClick={saveEdit}>저장</button></div>
+              <div className="charger-edit-actions"><button onClick={autoFillFavorite}>이름으로 자동 채우기</button><button onClick={() => { setEditingId(null); setDraft(null); }}>취소</button><button className="save" onClick={saveEdit}>저장</button></div>
             </article>
           ) : (
             <article className="charger-card" key={charger.id}>
@@ -2589,6 +2621,7 @@ function ChargerView({
           ))}
         </div>
       </section>
+      {userLocation && <section className="section-block nearby-results"><div className="section-title"><h2>내 주변 충전소</h2><span className="count">{nearbyLoading ? "검색 중" : `${nearbyChargers.length}곳`}</span></div>{nearbyLoading ? <div className="nearby-loading">GPS 기준으로 충전소를 찾고 있어요</div> : nearbyChargers.length > 0 ? <div className="charger-list">{nearbyChargers.map((charger) => <article className="charger-card" key={charger.id}><div className="charger-card-head"><span>⚡</span><div><button className="charger-name" onClick={() => openNaverMap(charger.address)}>{charger.name}</button><small>{charger.operator} · {charger.gpsDistance?.toFixed(1) ?? "-"}km</small></div></div><div className="charger-counts"><span>완속 <b>{charger.slowCount || "-"}기</b></span><span>급속 <b>{charger.fastCount || "-"}기</b></span></div><div className="charger-prices"><span>회원 <b>{charger.memberPrice}/kWh</b></span><span>비회원 <b>{charger.guestPrice}/kWh</b></span></div><button className="charger-route" onClick={() => openNaverMap(charger.address)}>네이버지도로 상태 확인 <b>›</b></button></article>)}</div> : <div className="nearby-loading">주변 충전소가 없거나 정보가 부족해요.</div>}</section>}
       <p className="charger-note">충전 상태는 충전소 이름을 눌러 네이버지도에서 확인하세요. 요금은 직접 수정 가능한 즐겨찾기 정보라 실제와 다를 수 있습니다.</p>
     </>
   );
