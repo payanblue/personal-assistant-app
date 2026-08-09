@@ -497,6 +497,8 @@ function HomeWeather({
               <span>
                 습도 {forecast.hourly?.relative_humidity_2m[index] ?? 0}%
               </span>
+              <span>미세 {Math.round(air.hourly.pm10[index] ?? 0)}</span>
+              <span>초미세 {Math.round(air.hourly.pm2_5[index] ?? 0)}</span>
             </article>
           );
         })}
@@ -1233,9 +1235,9 @@ function WorkView({
         document.addEventListener("pointercancel", stop, { once: true });
       }
     };
-    document.addEventListener("pointerdown", start);
+    document.addEventListener("pointerdown", start, true);
     return () => {
-      document.removeEventListener("pointerdown", start);
+      document.removeEventListener("pointerdown", start, true);
       document.removeEventListener("pointermove", move);
       document.removeEventListener("pointerup", stop);
       document.removeEventListener("pointercancel", stop);
