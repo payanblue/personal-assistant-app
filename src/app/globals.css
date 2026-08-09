@@ -304,6 +304,7 @@ h1 {
 .charger-route { display: flex; width: 100%; justify-content: space-between; padding: 11px 0 0; border: 0; border-top: 1px solid #d5ded8; background: transparent; color: var(--muted); font-size: 11px; text-align: left; }.charger-route b { color: var(--green); font-size: 17px; line-height: 11px; }
 .charger-edit { display: grid; gap: 10px; }.charger-edit label { display: grid; gap: 5px; color: #53625a; font-size: 10px; font-weight: 700; }.charger-edit input { width: 100%; padding: 9px; border: 1px solid #c4d1c8; border-radius: 9px; outline-color: var(--green); background: #fff; color: var(--ink); font: inherit; font-size: 12px; }.charger-edit-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }.charger-edit-grid + .charger-edit-grid { grid-template-columns: repeat(3, 1fr); }.charger-edit-actions { display: flex; justify-content: flex-end; gap: 7px; }.charger-edit-actions button { padding: 9px 12px; border: 0; border-radius: 9px; background: #d5dfd8; color: #526159; font-size: 11px; font-weight: 700; }.charger-edit-actions .save { background: var(--green); color: white; }
 .charger-note { margin: 16px 5px 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.nearby-results { padding-top: 2px; }.nearby-loading { display: grid; min-height: 74px; place-items: center; padding: 14px; border: 1px dashed #b7cabd; border-radius: 15px; color: var(--muted); font-size: 11px; }
 .bottom-nav button {
   display: flex;
   flex-direction: column;
