@@ -1810,6 +1810,7 @@ h1 {
   gap: 8px;
   padding: 12px 12px 6px;
 }
+.sun-times { display: flex; justify-content: space-between; gap: 8px; padding: 6px 14px 11px; color: #526a5b; font-size: 10px; font-weight: 700; }
 .air-chip {
   display: grid;
   grid-template-columns: 1fr auto;
