@@ -372,7 +372,7 @@ function weatherGreeting(weather: GreetingWeather | null) {
   if (weather.code >= 95)
     return { title: "천둥번개 가능성이 있어요", detail: "외출 전 기상 정보를 한 번 더 확인하세요" };
   if (weather.code >= 51 || weather.rainChance >= 60)
-    return { title: "비가 올 수 있는 " + base.replace("좋은 ", ""), detail: "우산을 챙기면 마음이 편해요" };
+    return { title: base, detail: "오늘 비 가능성이 있어요 · 우산을 챙기세요" };
   if (weather.code <= 1)
     return { title: "맑은 " + base.replace("좋은 ", ""), detail: `${Math.round(weather.temperature)}° · 가볍게 하루를 시작해 볼까요` };
   return { title: "구름 낀 " + base.replace("좋은 ", ""), detail: `${Math.round(weather.temperature)}° · 필요한 일부터 가볍게 정리해요` };
