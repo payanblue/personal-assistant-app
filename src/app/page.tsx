@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import KoreanLunarCalendar from "korean-lunar-calendar";
 
-type Tab = "home" | "memo" | "work" | "calendar" | "more" | "weather";
+type Tab = "home" | "memo" | "work" | "calendar" | "more" | "weather" | "charge";
 type VoiceKind = "memo" | "work" | "calendar";
 
 type SpeechRecognitionResultEventLike = Event & {
@@ -92,6 +92,7 @@ type WeatherLocation = {
   longitude: number;
   timezone: string;
 };
+type GreetingWeather = { code: number; rainChance: number; temperature: number };
 type GeocodingResult = {
   name: string;
   admin1?: string;
@@ -326,8 +327,63 @@ const menuItems: { icon: string; label: string; id: Tab }[] = [
   { icon: "✎", label: "메모", id: "memo" },
   { icon: "✓", label: "업무", id: "work" },
   { icon: "□", label: "일정", id: "calendar" },
+  { icon: "⚡", label: "충전", id: "charge" },
   { icon: "•••", label: "더보기", id: "more" },
 ];
+
+type ChargerFavorite = {
+  name: string;
+  address: string;
+  speed: string;
+  state: string;
+  distance: string;
+  memberPrice: string;
+  guestPrice: string;
+};
+
+const chargerFavorites: ChargerFavorite[] = [
+  { name: "성안동 공영주차장", address: "울산 중구 성안동 공영주차장", speed: "완속 7kW", state: "상태 확인", distance: "0.8km", memberPrice: "292원", guestPrice: "324원" },
+  { name: "울산 중구청", address: "울산광역시 중구 중앙길 1", speed: "급속 100kW", state: "상태 확인", distance: "2.1km", memberPrice: "347원", guestPrice: "389원" },
+  { name: "울산 종합운동장", address: "울산광역시 중구 염포로 55", speed: "완속 7kW", state: "상태 확인", distance: "4.7km", memberPrice: "292원", guestPrice: "324원" },
+  { name: "부산 본가 주변", address: "부산광역시", speed: "급속 100kW", state: "상태 확인", distance: "즐겨찾기", memberPrice: "확인 필요", guestPrice: "확인 필요" },
+  { name: "자주 가는 업무 현장", address: "울산광역시", speed: "완속 7kW", state: "상태 확인", distance: "즐겨찾기", memberPrice: "292원", guestPrice: "324원" },
+];
+
+function greetingForNow(date = new Date()) {
+  const hour = date.getHours();
+  if (hour < 6) return "늦은 시간이네요";
+  if (hour < 12) return "좋은 아침이에요";
+  if (hour < 18) return "좋은 오후예요";
+  return "편안한 저녁이에요";
+}
+
+function weatherGreeting(weather: GreetingWeather | null) {
+  const base = greetingForNow();
+  if (!weather) return { title: base, detail: "오늘의 날씨를 확인하는 중이에요" };
+  if (weather.code >= 95)
+    return { title: "천둥번개 가능성이 있어요", detail: "외출 전 기상 정보를 한 번 더 확인하세요" };
+  if (weather.code >= 51 || weather.rainChance >= 60)
+    return { title: "비가 올 수 있는 " + base.replace("좋은 ", ""), detail: "우산을 챙기면 마음이 편해요" };
+  if (weather.code <= 1)
+    return { title: "맑은 " + base.replace("좋은 ", ""), detail: `${Math.round(weather.temperature)}° · 가볍게 하루를 시작해 볼까요` };
+  return { title: "구름 낀 " + base.replace("좋은 ", ""), detail: `${Math.round(weather.temperature)}° · 필요한 일부터 가볍게 정리해요` };
+}
+
+function todayLabel(date = new Date()) {
+  return new Intl.DateTimeFormat("ko-KR", {
+    month: "long",
+    day: "numeric",
+    weekday: "long",
+  }).format(date);
+}
+
+function openNaverMap(address: string) {
+  window.open(
+    `https://map.naver.com/p/search/${encodeURIComponent(address)}`,
+    "_blank",
+    "noopener,noreferrer",
+  );
+}
 
 function analyzeVoiceText(text: string) {
   const now = new Date();
@@ -384,9 +440,11 @@ function airGrade(value: number, kind: "pm10" | "pm2_5") {
 function HomeWeather({
   location,
   openDetails,
+  onCurrentWeather,
 }: {
   location: WeatherLocation;
   openDetails: () => void;
+  onCurrentWeather?: (weather: GreetingWeather) => void;
 }) {
   const [forecast, setForecast] = useState<WeatherResponse | null>(null);
   const [air, setAir] = useState<AirQualityResponse | null>(null);
@@ -410,6 +468,21 @@ function HomeWeather({
       })
       .catch(() => setFailed(true));
   }, [location]);
+
+  useEffect(() => {
+    if (!forecast?.current || !forecast.hourly) return;
+    const now = new Date();
+    const currentHour = `${localDateKey(now)}T${String(now.getHours()).padStart(2, "0")}:00`;
+    const currentIndex = Math.max(
+      0,
+      forecast.hourly.time.findIndex((time) => time >= currentHour),
+    );
+    onCurrentWeather?.({
+      code: forecast.current.weather_code,
+      rainChance: forecast.hourly.precipitation_probability[currentIndex] ?? 0,
+      temperature: forecast.current.temperature_2m,
+    });
+  }, [forecast, onCurrentWeather]);
 
   if (failed)
     return (
@@ -676,7 +749,9 @@ function HomeView({
   weatherLocation: WeatherLocation;
   openVoice: () => void;
 }) {
+  const [currentWeather, setCurrentWeather] = useState<GreetingWeather | null>(null);
   const recentMemos = memos.filter((memo) => !memo.deleted).slice(0, 2);
+  const greeting = weatherGreeting(currentWeather);
   const today = localDateKey();
   const todayEvents = events
     .filter((event) => !event.deleted && eventOccursOn(event, today))
@@ -697,8 +772,9 @@ function HomeView({
     <>
       <header className="topbar">
         <div>
-          <p className="eyebrow">8월 6일 목요일</p>
-          <h1>좋은 아침이에요 👋</h1>
+          <p className="eyebrow">{todayLabel()}</p>
+          <h1>{greeting.title} 👋</h1>
+          <p className="greeting-detail">{greeting.detail}</p>
         </div>
         <button className="profile-button" aria-label="내 정보">
           나
@@ -712,6 +788,7 @@ function HomeView({
       <HomeWeather
         location={weatherLocation}
         openDetails={() => go("weather")}
+        onCurrentWeather={setCurrentWeather}
       />
       {reminderMessages.length > 0 && (
         <section className="reminder-messages" aria-label="일정 알림">
@@ -785,6 +862,24 @@ function HomeView({
               아직 메모가 없어요 · 메모 작성
             </button>
           )}
+        </div>
+      </section>
+      <section className="section-block">
+        <div className="section-title">
+          <h2>자주 쓰는 충전소</h2>
+          <button onClick={() => go("charge")}>전체보기</button>
+        </div>
+        <div className="home-charge-strip">
+          {chargerFavorites.map((charger) => (
+            <button
+              key={charger.name}
+              onClick={() => openNaverMap(charger.address)}
+            >
+              <span>⚡</span>
+              <strong>{charger.name}</strong>
+              <small>{charger.speed} · {charger.distance}</small>
+            </button>
+          ))}
         </div>
       </section>
       <section className="shortcut-grid">
@@ -2374,6 +2469,54 @@ function WeatherView({
   );
 }
 
+function ChargerView() {
+  const [provider, setProvider] = useState<"turu" | "all">("turu");
+  return (
+    <>
+      <PageHeader title="충전" />
+      <section className="charger-intro">
+        <div>
+          <p>캐스퍼 일렉트릭</p>
+          <h2>가까운 충전소를 빠르게</h2>
+          <span>Turu Charger를 기본으로 보여드려요</span>
+        </div>
+        <b>⚡</b>
+      </section>
+      <div className="charge-filters" aria-label="충전소 필터">
+        <button className={provider === "turu" ? "active" : ""} onClick={() => setProvider("turu")}>Turu Charger</button>
+        <button className={provider === "all" ? "active" : ""} onClick={() => setProvider("all")}>전체 운영사</button>
+        <button>급속 · 완속</button>
+      </div>
+      <section className="section-block charger-section">
+        <div className="section-title">
+          <h2>즐겨찾기</h2>
+          <span className="count">최대 5개</span>
+        </div>
+        <div className="charger-list">
+          {chargerFavorites.map((charger) => (
+            <button className="charger-card" key={charger.name} onClick={() => openNaverMap(charger.address)}>
+              <div className="charger-card-head">
+                <span>⚡</span>
+                <div>
+                  <strong>{charger.name}</strong>
+                  <small>{charger.distance} · {charger.speed}</small>
+                </div>
+                <em>{charger.state}</em>
+              </div>
+              <div className="charger-prices">
+                <span>회원 <b>{charger.memberPrice}/kWh</b></span>
+                <span>비회원 <b>{charger.guestPrice}/kWh</b></span>
+              </div>
+              <footer>카드 전체를 누르면 네이버지도로 길안내 <b>›</b></footer>
+            </button>
+          ))}
+        </div>
+      </section>
+      <p className="charger-note">충전 상태와 요금은 현재 API 연결 전이라 직접 확인이 필요해요.</p>
+    </>
+  );
+}
+
 function MoreView({
   go,
   exportData,
@@ -2717,6 +2860,7 @@ export default function Home() {
         openVoice={() => setVoiceOpen(true)}
       />
     ),
+    charge: <ChargerView />,
     more: (
       <MoreView
         go={navigateTab}
