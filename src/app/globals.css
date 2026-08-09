@@ -1811,6 +1811,7 @@ h1 {
   padding: 12px 12px 6px;
 }
 .sun-times { display: flex; justify-content: space-between; gap: 8px; padding: 6px 14px 11px; color: #526a5b; font-size: 10px; font-weight: 700; }
+.anniversary-cards { display: grid; gap: 9px; }.anniversary-cards button { display: flex; align-items: center; gap: 11px; width: 100%; padding: 13px; border: 1px solid #d4ded6; border-radius: 15px; background: #f9fbf9; text-align: left; }.anniversary-icon { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 11px; background: #e4f0e8; color: var(--green); font-size: 17px; }.anniversary-cards div { display: grid; gap: 4px; min-width: 0; }.anniversary-cards strong { font-size: 13px; }.anniversary-cards small { color: var(--muted); font-size: 10px; }.anniversary-cards b { margin-left: auto; color: #8a988f; font-size: 19px; font-weight: 400; }
 .air-chip {
   display: grid;
   grid-template-columns: 1fr auto;
