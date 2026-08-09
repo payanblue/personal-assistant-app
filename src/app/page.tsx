@@ -225,6 +225,7 @@ type BackupPayload = {
   events: Array<CalendarEvent & { duration?: string; category?: string }>;
   weatherLocation?: WeatherLocation;
   savedWeatherLocations?: WeatherLocation[];
+  chargers?: ChargerFavorite[];
 };
 
 const sampleEvents: CalendarEvent[] = [];
@@ -332,22 +333,34 @@ const menuItems: { icon: string; label: string; id: Tab }[] = [
 ];
 
 type ChargerFavorite = {
+  id: number;
   name: string;
   address: string;
+  operator: string;
   speed: string;
-  state: string;
   distance: string;
   memberPrice: string;
   guestPrice: string;
+  ready: number;
+  busy: number;
+  down: number;
+  latitude: number;
+  longitude: number;
 };
 
-const chargerFavorites: ChargerFavorite[] = [
-  { name: "성안동 공영주차장", address: "울산 중구 성안동 공영주차장", speed: "완속 7kW", state: "상태 확인", distance: "0.8km", memberPrice: "292원", guestPrice: "324원" },
-  { name: "울산 중구청", address: "울산광역시 중구 중앙길 1", speed: "급속 100kW", state: "상태 확인", distance: "2.1km", memberPrice: "347원", guestPrice: "389원" },
-  { name: "울산 종합운동장", address: "울산광역시 중구 염포로 55", speed: "완속 7kW", state: "상태 확인", distance: "4.7km", memberPrice: "292원", guestPrice: "324원" },
-  { name: "부산 본가 주변", address: "부산광역시", speed: "급속 100kW", state: "상태 확인", distance: "즐겨찾기", memberPrice: "확인 필요", guestPrice: "확인 필요" },
-  { name: "자주 가는 업무 현장", address: "울산광역시", speed: "완속 7kW", state: "상태 확인", distance: "즐겨찾기", memberPrice: "292원", guestPrice: "324원" },
+const defaultChargers: ChargerFavorite[] = [
+  { id: 1, name: "성안동 공영주차장", address: "울산 중구 성안동 공영주차장", operator: "Turu Charger", speed: "완속 7kW", distance: "0.8km", memberPrice: "292원", guestPrice: "324원", ready: 2, busy: 1, down: 0, latitude: 35.5757, longitude: 129.3256 },
+  { id: 2, name: "울산 중구청", address: "울산광역시 중구 중앙길 1", operator: "Turu Charger", speed: "급속 100kW", distance: "2.1km", memberPrice: "347원", guestPrice: "389원", ready: 3, busy: 2, down: 0, latitude: 35.5681, longitude: 129.3327 },
+  { id: 3, name: "울산 종합운동장", address: "울산광역시 중구 염포로 55", operator: "Turu Charger", speed: "완속 7kW", distance: "4.7km", memberPrice: "292원", guestPrice: "324원", ready: 4, busy: 0, down: 1, latitude: 35.5615, longitude: 129.3499 },
+  { id: 4, name: "부산 본가 주변", address: "부산광역시", operator: "현대 E-pit", speed: "급속 100kW", distance: "즐겨찾기", memberPrice: "확인 필요", guestPrice: "확인 필요", ready: 1, busy: 2, down: 0, latitude: 35.1796, longitude: 129.0756 },
+  { id: 5, name: "자주 가는 업무 현장", address: "울산광역시", operator: "환경부", speed: "완속 7kW", distance: "즐겨찾기", memberPrice: "292원", guestPrice: "324원", ready: 1, busy: 0, down: 0, latitude: 35.576, longitude: 129.326 },
 ];
+
+function distanceKm(fromLat: number, fromLng: number, toLat: number, toLng: number) {
+  const rad = (value: number) => (value * Math.PI) / 180;
+  const a = Math.sin(rad(toLat - fromLat) / 2) ** 2 + Math.cos(rad(fromLat)) * Math.cos(rad(toLat)) * Math.sin(rad(toLng - fromLng) / 2) ** 2;
+  return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
 
 function greetingForNow(date = new Date()) {
   const hour = date.getHours();
@@ -741,12 +754,14 @@ function HomeView({
   memos,
   events,
   weatherLocation,
+  chargers,
   openVoice,
 }: {
   go: (tab: Tab) => void;
   memos: Memo[];
   events: CalendarEvent[];
   weatherLocation: WeatherLocation;
+  chargers: ChargerFavorite[];
   openVoice: () => void;
 }) {
   const [currentWeather, setCurrentWeather] = useState<GreetingWeather | null>(null);
@@ -870,14 +885,14 @@ function HomeView({
           <button onClick={() => go("charge")}>전체보기</button>
         </div>
         <div className="home-charge-strip">
-          {chargerFavorites.map((charger) => (
+          {chargers.map((charger) => (
             <button
               key={charger.name}
               onClick={() => openNaverMap(charger.address)}
             >
               <span>⚡</span>
               <strong>{charger.name}</strong>
-              <small>{charger.speed} · {charger.distance}</small>
+              <small>{charger.speed} · 가능 {charger.ready} · 충전 중 {charger.busy}</small>
             </button>
           ))}
         </div>
@@ -2156,6 +2171,7 @@ function WeatherView({
     best: WeatherResponse;
     models: WeatherResponse[];
   } | null>(null);
+  const [air, setAir] = useState<AirQualityResponse | null>(null);
   const [error, setError] = useState(false);
   const [query, setQuery] = useState("");
   const [searching, setSearching] = useState(false);
@@ -2228,18 +2244,21 @@ function WeatherView({
     const modelDaily =
       "weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,wind_speed_10m_max";
     const bestUrl = `https://api.open-meteo.com/v1/forecast?${locationQuery}&current=temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code&hourly=temperature_2m,relative_humidity_2m,precipitation_probability,weather_code,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum,wind_speed_10m_max`;
+    const airUrl = `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${location.latitude}&longitude=${location.longitude}&timezone=${encodeURIComponent(location.timezone)}&hourly=pm10,pm2_5`;
     const modelUrls = ["ecmwf", "gfs", "jma"].map(
       (model) =>
         `https://api.open-meteo.com/v1/${model}?${modelLocationQuery}&daily=${modelDaily}`,
     );
-    Promise.all([fetch(bestUrl), ...modelUrls.map((url) => fetch(url))])
+    Promise.all([fetch(bestUrl), ...modelUrls.map((url) => fetch(url)), fetch(airUrl)])
       .then(async (responses) => {
         if (responses.some((response) => !response.ok))
           throw new Error("weather request failed");
-        const values = (await Promise.all(
-          responses.map((response) => response.json()),
+        const forecastValues = (await Promise.all(
+          responses.slice(0, 1 + modelUrls.length).map((response) => response.json()),
         )) as WeatherResponse[];
-        setData({ best: values[0], models: values.slice(1) });
+        const airValue = (await responses.at(-1)?.json()) as AirQualityResponse;
+        setData({ best: forecastValues[0], models: forecastValues.slice(1) });
+        setAir(airValue);
       })
       .catch(() => setError(true));
   }, [location]);
@@ -2293,6 +2312,10 @@ function WeatherView({
           바람 {Math.round(data.best.hourly?.wind_speed_10m[index] ?? 0)}
         </span>
         <span>습도 {data.best.hourly?.relative_humidity_2m[index] ?? 0}%</span>
+        {air && (() => {
+          const airIndex = air.hourly.time.indexOf(time);
+          return <><span>미세 {Math.round(air.hourly.pm10[airIndex] ?? 0)}</span><span>초미세 {Math.round(air.hourly.pm2_5[airIndex] ?? 0)}</span></>;
+        })()}
       </article>
     ));
 
@@ -2469,8 +2492,41 @@ function WeatherView({
   );
 }
 
-function ChargerView() {
-  const [provider, setProvider] = useState<"turu" | "all">("turu");
+function ChargerView({
+  chargers,
+  setChargers,
+}: {
+  chargers: ChargerFavorite[];
+  setChargers: (chargers: ChargerFavorite[]) => void;
+}) {
+  const [provider, setProvider] = useState("Turu Charger");
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [draft, setDraft] = useState<ChargerFavorite | null>(null);
+  const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [locationMessage, setLocationMessage] = useState("");
+  const providers = ["전체", ...Array.from(new Set(chargers.map((charger) => charger.operator)))];
+  const visibleChargers = (provider === "전체" ? chargers : chargers.filter((charger) => charger.operator === provider))
+    .map((charger) => ({ ...charger, gpsDistance: userLocation ? distanceKm(userLocation.latitude, userLocation.longitude, charger.latitude, charger.longitude) : null }))
+    .sort((a, b) => (a.gpsDistance ?? Number.MAX_SAFE_INTEGER) - (b.gpsDistance ?? Number.MAX_SAFE_INTEGER));
+  const findNearby = () => {
+    if (!navigator.geolocation) { setLocationMessage("이 기기에서는 GPS 위치를 사용할 수 없어요."); return; }
+    setLocationMessage("현재 위치를 확인하고 있어요…");
+    navigator.geolocation.getCurrentPosition(
+      (position) => { setUserLocation(position.coords); setLocationMessage("현재 위치 기준으로 거리순 정렬했어요."); },
+      () => setLocationMessage("위치 권한을 허용하면 내 주변 충전소를 찾을 수 있어요."),
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 },
+    );
+  };
+  const beginEdit = (charger: ChargerFavorite) => {
+    setDraft({ ...charger });
+    setEditingId(charger.id);
+  };
+  const saveEdit = () => {
+    if (!draft || !draft.name.trim() || !draft.address.trim()) return;
+    setChargers(chargers.map((charger) => charger.id === draft.id ? draft : charger));
+    setEditingId(null);
+    setDraft(null);
+  };
   return (
     <>
       <PageHeader title="충전" />
@@ -2483,36 +2539,49 @@ function ChargerView() {
         <b>⚡</b>
       </section>
       <div className="charge-filters" aria-label="충전소 필터">
-        <button className={provider === "turu" ? "active" : ""} onClick={() => setProvider("turu")}>Turu Charger</button>
-        <button className={provider === "all" ? "active" : ""} onClick={() => setProvider("all")}>전체 운영사</button>
+        {providers.slice(0, 3).map((item) => <button key={item} className={provider === item ? "active" : ""} onClick={() => setProvider(item)}>{item}</button>)}
+        {providers.length > 3 && <select aria-label="운영사 선택" value={provider} onChange={(event) => setProvider(event.target.value)}>{providers.map((item) => <option value={item} key={item}>{item}</option>)}</select>}
         <button>급속 · 완속</button>
       </div>
+      <section className="nearby-search">
+        <div><strong>내 주변 충전소</strong><span>{locationMessage || "GPS 위치를 기준으로 즐겨찾기를 거리순으로 정렬해요"}</span></div>
+        <button onClick={findNearby}>⌖ 현재 위치</button>
+      </section>
       <section className="section-block charger-section">
         <div className="section-title">
-          <h2>즐겨찾기</h2>
-          <span className="count">최대 5개</span>
+          <h2>{provider === "전체" ? "즐겨찾기" : `${provider} 충전소`}</h2>
+          <span className="count">{visibleChargers.length}곳 · 최대 5개</span>
         </div>
         <div className="charger-list">
-          {chargerFavorites.map((charger) => (
-            <button className="charger-card" key={charger.name} onClick={() => openNaverMap(charger.address)}>
+          {visibleChargers.map((charger) => editingId === charger.id && draft ? (
+            <article className="charger-card charger-edit" key={charger.id}>
+              <label>충전소 이름<input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })}/></label>
+              <label>주소<input value={draft.address} onChange={(event) => setDraft({ ...draft, address: event.target.value })}/></label>
+              <div className="charger-edit-grid"><label>운영사<input value={draft.operator} onChange={(event) => setDraft({ ...draft, operator: event.target.value })}/></label><label>충전 방식<input value={draft.speed} onChange={(event) => setDraft({ ...draft, speed: event.target.value })}/></label></div>
+              <div className="charger-edit-grid"><label>사용 가능<input type="number" min="0" value={draft.ready} onChange={(event) => setDraft({ ...draft, ready: Number(event.target.value) })}/></label><label>충전 중<input type="number" min="0" value={draft.busy} onChange={(event) => setDraft({ ...draft, busy: Number(event.target.value) })}/></label><label>사용 불가<input type="number" min="0" value={draft.down} onChange={(event) => setDraft({ ...draft, down: Number(event.target.value) })}/></label></div>
+              <div className="charger-edit-actions"><button onClick={() => { setEditingId(null); setDraft(null); }}>취소</button><button className="save" onClick={saveEdit}>저장</button></div>
+            </article>
+          ) : (
+            <article className="charger-card" key={charger.id}>
               <div className="charger-card-head">
                 <span>⚡</span>
                 <div>
                   <strong>{charger.name}</strong>
-                  <small>{charger.distance} · {charger.speed}</small>
+                  <small>{charger.operator} · {charger.gpsDistance !== null ? `${charger.gpsDistance.toFixed(1)}km` : charger.distance} · {charger.speed}</small>
                 </div>
-                <em>{charger.state}</em>
+                <button className="charger-edit-button" onClick={() => beginEdit(charger)}>수정</button>
               </div>
+              <button className="charger-statuses" onClick={() => openNaverMap(charger.address)} aria-label={`${charger.name} 네이버지도 길안내`}><span className="ready">사용 가능 <b>{charger.ready}대</b></span><span className="busy">충전 중 <b>{charger.busy}대</b></span><span className="down">사용 불가 <b>{charger.down}대</b></span></button>
               <div className="charger-prices">
                 <span>회원 <b>{charger.memberPrice}/kWh</b></span>
                 <span>비회원 <b>{charger.guestPrice}/kWh</b></span>
               </div>
-              <footer>카드 전체를 누르면 네이버지도로 길안내 <b>›</b></footer>
-            </button>
+              <button className="charger-route" onClick={() => openNaverMap(charger.address)}>네이버지도로 길안내 <b>›</b></button>
+            </article>
           ))}
         </div>
       </section>
-      <p className="charger-note">충전 상태와 요금은 현재 API 연결 전이라 직접 확인이 필요해요.</p>
+      <p className="charger-note">카드의 대수와 요금은 현재 직접 수정 가능한 즐겨찾기 정보예요. 실시간 상태·요금 자동 갱신은 충전 API 연결 후 반영됩니다.</p>
     </>
   );
 }
@@ -2620,6 +2689,7 @@ export default function Home() {
   const [savedWeatherLocations, setSavedWeatherLocations] = useState<
     WeatherLocation[]
   >([defaultWeatherLocation]);
+  const [chargers, setChargers] = useState<ChargerFavorite[]>(defaultChargers);
   const [storageReady, setStorageReady] = useState(false);
   useEffect(() => {
     tabRef.current = tab;
@@ -2658,6 +2728,7 @@ export default function Home() {
       const savedWeatherLocationsValue = window.localStorage.getItem(
         "my-assistant-saved-weather-locations",
       );
+      const savedChargers = window.localStorage.getItem("my-assistant-chargers");
       try {
         if (savedMemos) setMemos(JSON.parse(savedMemos));
       } catch {
@@ -2691,6 +2762,14 @@ export default function Home() {
           setSavedWeatherLocations(JSON.parse(savedWeatherLocationsValue));
       } catch {
         /* 기본 위치 유지 */
+      }
+      try {
+        if (savedChargers) {
+          const saved = JSON.parse(savedChargers) as ChargerFavorite[];
+          setChargers(defaultChargers.map((base) => ({ ...base, ...(saved.find((item) => item.id === base.id) ?? {}) })));
+        }
+      } catch {
+        /* 기본 충전소 유지 */
       }
       setStorageReady(true);
     }, 0);
@@ -2728,6 +2807,10 @@ export default function Home() {
         JSON.stringify(savedWeatherLocations),
       );
   }, [savedWeatherLocations, storageReady]);
+  useEffect(() => {
+    if (storageReady)
+      window.localStorage.setItem("my-assistant-chargers", JSON.stringify(chargers));
+  }, [chargers, storageReady]);
   useEffect(() => {
     if (process.env.NODE_ENV === "production" && "serviceWorker" in navigator)
       navigator.serviceWorker
@@ -2800,6 +2883,7 @@ export default function Home() {
       workItems,
       events,
       weatherLocation,
+      chargers,
     };
     const url = URL.createObjectURL(
       new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" }),
@@ -2836,6 +2920,7 @@ export default function Home() {
       setWorkItems(backup.workItems);
       setEvents(backup.events.map(normalizeCalendarEvent));
       if (backup.weatherLocation) setWeatherLocation(backup.weatherLocation);
+      if (backup.chargers) setChargers(backup.chargers);
       window.alert("백업 파일에서 데이터를 복원했습니다.");
     } catch {
       window.alert("이 앱에서 만든 올바른 백업 파일이 아닙니다.");
@@ -2848,6 +2933,7 @@ export default function Home() {
         memos={memos}
         events={events}
         weatherLocation={weatherLocation}
+        chargers={chargers}
         openVoice={() => setVoiceOpen(true)}
       />
     ),
@@ -2860,7 +2946,7 @@ export default function Home() {
         openVoice={() => setVoiceOpen(true)}
       />
     ),
-    charge: <ChargerView />,
+    charge: <ChargerView chargers={chargers} setChargers={setChargers} />,
     more: (
       <MoreView
         go={navigateTab}
