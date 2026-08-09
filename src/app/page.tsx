@@ -103,6 +103,7 @@ type PlaceSearchResult = {
   lat: string;
   lon: string;
   address?: {
+    quarter?: string;
     suburb?: string;
     neighbourhood?: string;
     village?: string;
@@ -1172,7 +1173,11 @@ function WorkView({
       setItems((current) => current.filter((item) => item.id !== id));
   };
   useEffect(() => {
+    let activeRow: HTMLElement | null = null;
+    let startY = 0;
     const stop = () => {
+      if (activeRow) activeRow.style.transform = "";
+      activeRow = null;
       const sourceId = dragSourceId.current;
       const targetId = dragTargetId.current;
       if (sourceId !== null && targetId !== null && sourceId !== targetId) setItems((current) => {
@@ -1190,6 +1195,7 @@ function WorkView({
     };
     const move = (event: PointerEvent) => {
       if (dragSourceId.current === null) return;
+      if (activeRow) activeRow.style.transform = `translateY(${event.clientY - startY}px) scale(1.035)`;
       const target = document
         .elementFromPoint(event.clientX, event.clientY)
         ?.closest<HTMLElement>(".work-line");
@@ -1209,6 +1215,8 @@ function WorkView({
         list.querySelectorAll(":scope > .work-line"),
       ).indexOf(row);
       if (sourceIndex >= 0) {
+        activeRow = row;
+        startY = event.clientY;
         dragSourceId.current = visibleItems[sourceIndex].id;
         dragTargetId.current = visibleItems[sourceIndex].id;
         setDraggingId(dragSourceId.current);
@@ -2061,6 +2069,7 @@ function WeatherView({
       const placeResults: GeocodingResult[] = placeValue
         .map((place) => ({
           name:
+            place.address?.quarter ??
             place.address?.suburb ??
             place.address?.neighbourhood ??
             place.address?.village ??
@@ -2077,7 +2086,8 @@ function WeatherView({
           (place) =>
             Number.isFinite(place.latitude) && Number.isFinite(place.longitude),
         );
-      const merged = [...(weatherValue.results ?? []), ...placeResults].filter(
+      const koreanPlaces = placeResults.filter((place) => /대한민국|Republic of Korea|South Korea/.test(place.country ?? ""));
+      const merged = [...koreanPlaces, ...(weatherValue.results ?? [])].filter(
         (place, index, all) =>
           all.findIndex(
             (other) =>
@@ -2085,7 +2095,7 @@ function WeatherView({
               Math.abs(other.longitude - place.longitude) < 0.005,
           ) === index,
       );
-      setResults(merged);
+      setResults(merged.sort((a, b) => Number(!a.name.includes(keyword)) - Number(!b.name.includes(keyword))));
       setNoResults(merged.length === 0);
     } catch {
       setResults([]);
@@ -2200,7 +2210,7 @@ function WeatherView({
         {candidate && <div className="location-candidate"><strong>{locationShortName(candidate)}</strong><span>{candidate.area}</span><button onClick={saveCandidate}>이 위치 저장</button></div>}
         <p className="location-hint">저장한 위치 ({savedLocations.length}/5)</p>
         <div className="quick-locations">
-          {savedLocations.map((item) => <button className={item.name === location.name ? "selected" : ""} key={`${item.latitude}-${item.longitude}`} onClick={() => { setData(null); setError(false); setLocation(item); }}>{locationShortName(item)}</button>)}
+          {savedLocations.map((item) => <span className="saved-location" key={`${item.latitude}-${item.longitude}`}><button className={item.name === location.name ? "selected" : ""} onClick={() => { setData(null); setError(false); setLocation(item); }}>{locationShortName(item)}</button><button className="remove-saved-location" aria-label={`${locationShortName(item)} 삭제`} onClick={() => setSavedLocations(current => current.filter(saved => saved.latitude !== item.latitude || saved.longitude !== item.longitude))}>×</button></span>)}
         </div>
         <div className="quick-locations">
           {quickWeatherLocations.map((item) => (
