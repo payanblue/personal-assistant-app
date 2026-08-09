@@ -2101,4 +2101,4 @@ h1 {
 }
 .gps-location-button { width: 100%; margin-top: 9px; padding: 10px; border: 1px solid #87aa97; border-radius: 11px; background: #e4f0e8; color: var(--green); font-size: 11px; font-weight: 800; }
 .location-candidate { display: grid; grid-template-columns: 1fr auto; gap: 4px 8px; margin-top: 8px; padding: 11px; border: 1px solid #7ca88a; border-radius: 12px; background: #eef7f0; }.location-candidate strong { font-size: 12px; }.location-candidate span { grid-column: 1 / -1; color: var(--muted); font-size: 9px; }.location-candidate button { grid-column: 2; grid-row: 1; padding: 7px 9px; border: 0; border-radius: 8px; background: var(--green); color: white; font-size: 10px; font-weight: 800; }
-.work-line:has(.drag-handle:active) { z-index: 5; transform: scale(1.035); border-color: #4f8c68; box-shadow: 0 10px 24px #2c624733; background: #f4fbf6; }
+.work-line.dragging, .work-line:has(.drag-handle:active) { z-index: 5; transform: scale(1.035); border-color: #4f8c68; box-shadow: 0 10px 24px #2c624733; background: #f4fbf6; transition: transform .12s ease, box-shadow .12s ease; }
