@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 
 export const dynamic = "force-dynamic";
+// Nearby results are requested at runtime from OpenStreetMap charging-station data.
 
 type OverpassElement = {
   type: string;
