@@ -44,7 +44,12 @@ type WeatherDaily = {
 
 type WeatherResponse = {
   current?: { temperature_2m: number; apparent_temperature: number; relative_humidity_2m: number; wind_speed_10m: number; weather_code: number };
+  hourly?: { time: string[]; temperature_2m: number[]; relative_humidity_2m: number[]; precipitation_probability: number[]; weather_code: number[]; wind_speed_10m: number[] };
   daily: WeatherDaily;
+};
+
+type AirQualityResponse = {
+  hourly: { time: string[]; pm10: number[]; pm2_5: number[] };
 };
 
 type WeatherLocation = { name: string; area: string; latitude: number; longitude: number; timezone: string };
@@ -89,6 +94,7 @@ type CalendarEvent = {
   title: string;
   date: string;
   time: string;
+  allDay?: boolean;
   content: string;
   repeatYearly: boolean;
   calendarType: "solar" | "lunar";
@@ -117,6 +123,7 @@ function normalizeCalendarEvent(event: CalendarEvent & { duration?: string; cate
     title: event.title,
     date: event.date,
     time: event.time,
+    allDay: Boolean(event.allDay),
     content: event.content ?? [event.duration, event.category].filter(Boolean).join(" · "),
     repeatYearly: Boolean(event.repeatYearly),
     calendarType: event.calendarType ?? "solar",
@@ -231,6 +238,74 @@ function voiceTitle(text: string) {
   return (cleaned || text.trim()).slice(0, 42);
 }
 
+function airGrade(value: number, kind: "pm10" | "pm2_5") {
+  const limits = kind === "pm10" ? [30, 80, 150] : [15, 35, 75];
+  if (value <= limits[0]) return { label: "좋음", className: "good" };
+  if (value <= limits[1]) return { label: "보통", className: "normal" };
+  if (value <= limits[2]) return { label: "나쁨", className: "bad" };
+  return { label: "매우 나쁨", className: "very-bad" };
+}
+
+function HomeWeather({ location, openDetails }: { location: WeatherLocation; openDetails: () => void }) {
+  const [forecast, setForecast] = useState<WeatherResponse | null>(null);
+  const [air, setAir] = useState<AirQualityResponse | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    const common = `latitude=${location.latitude}&longitude=${location.longitude}&timezone=${encodeURIComponent(location.timezone)}&forecast_days=2`;
+    const forecastUrl = `https://api.open-meteo.com/v1/forecast?${common}&current=temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code&hourly=temperature_2m,relative_humidity_2m,precipitation_probability,weather_code,wind_speed_10m`;
+    const airUrl = `https://air-quality-api.open-meteo.com/v1/air-quality?${common}&hourly=pm10,pm2_5`;
+    Promise.all([fetch(forecastUrl), fetch(airUrl)])
+      .then(async ([weatherResponse, airResponse]) => {
+        if (!weatherResponse.ok || !airResponse.ok) throw new Error("home weather request failed");
+        const [weatherValue, airValue] = await Promise.all([weatherResponse.json(), airResponse.json()]) as [WeatherResponse, AirQualityResponse];
+        setFailed(false);
+        setForecast(weatherValue);
+        setAir(airValue);
+      })
+      .catch(() => setFailed(true));
+  }, [location]);
+
+  if (failed) return <button className="home-weather-error" onClick={openDetails}>날씨를 불러오지 못했어요 · 다시 확인</button>;
+  if (!forecast?.hourly || !air?.hourly) return <div className="home-weather-loading">24시간 예보를 불러오는 중이에요</div>;
+
+  const now = new Date();
+  const currentHour = `${localDateKey(now)}T${String(now.getHours()).padStart(2, "0")}:00`;
+  const startIndex = Math.max(0, forecast.hourly.time.findIndex(time => time >= currentHour));
+  const hours = forecast.hourly.time.slice(startIndex, startIndex + 24);
+  const airIndex = Math.max(0, air.hourly.time.findIndex(time => time >= currentHour));
+  const pm10 = Math.round(air.hourly.pm10[airIndex] ?? 0);
+  const pm25 = Math.round(air.hourly.pm2_5[airIndex] ?? 0);
+  const pm10Grade = airGrade(pm10, "pm10");
+  const pm25Grade = airGrade(pm25, "pm2_5");
+
+  return <section className="home-weather" aria-label={`${location.name} 24시간 날씨`}>
+    <button className="home-weather-current" onClick={openDetails}>
+      <div><p>{location.name} · {weatherLabel(forecast.current?.weather_code ?? 3)}</p><strong>{Math.round(forecast.current?.temperature_2m ?? 0)}°</strong><span>체감 {Math.round(forecast.current?.apparent_temperature ?? 0)}° · 습도 {forecast.current?.relative_humidity_2m ?? 0}% · 바람 {forecast.current?.wind_speed_10m ?? 0}m/s</span></div>
+      <b>{weatherIcon(forecast.current?.weather_code ?? 3)}</b>
+    </button>
+    <div className="air-quality-row">
+      <div className={`air-chip ${pm10Grade.className}`}><span>미세먼지</span><strong>{pm10}</strong><small>{pm10Grade.label}</small></div>
+      <div className={`air-chip ${pm25Grade.className}`}><span>초미세먼지</span><strong>{pm25}</strong><small>{pm25Grade.label}</small></div>
+    </div>
+    <div className="hourly-heading"><strong>24시간 예보</strong><span>옆으로 밀어 확인</span></div>
+    <div className="hourly-strip">
+      {hours.map((time, offset) => {
+        const index = startIndex + offset;
+        const date = new Date(time);
+        return <article className={offset === 0 ? "now" : ""} key={time}>
+          <time>{offset === 0 ? "지금" : `${date.getHours()}시`}</time>
+          <b>{weatherIcon(forecast.hourly?.weather_code[index] ?? 3)}</b>
+          <strong>{Math.round(forecast.hourly?.temperature_2m[index] ?? 0)}°</strong>
+          <span className="hourly-rain">비 {forecast.hourly?.precipitation_probability[index] ?? 0}%</span>
+          <span>바람 {Math.round(forecast.hourly?.wind_speed_10m[index] ?? 0)}</span>
+          <span>습도 {forecast.hourly?.relative_humidity_2m[index] ?? 0}%</span>
+        </article>;
+      })}
+    </div>
+  </section>;
+}
+
 function VoiceCapture({ close, save }: { close: () => void; save: (kind: VoiceKind, text: string, date: string, time: string) => void }) {
   const initial = analyzeVoiceText("");
   const [text, setText] = useState("");
@@ -274,11 +349,11 @@ function HomeView({ go, memos, workItems, setWorkItems, events, weatherLocation,
   });
   return <>
     <header className="topbar"><div><p className="eyebrow">8월 6일 목요일</p><h1>좋은 아침이에요 👋</h1></div><button className="profile-button" aria-label="내 정보">나</button></header>
-    <button className="quick-input" onClick={openVoice}><span className="mic">●</span><span>메모나 일정을 말해보세요</span><strong>＋</strong></button>
-    {reminderMessages.length > 0 && <section className="reminder-messages" aria-label="일정 알림">{reminderMessages.map(({ event, days }) => <button onClick={() => go("calendar")} key={event.id}><span>🔔</span><div><strong>{days}일 후 일정이 있어요</strong><p>{event.title} · {event.time}</p></div><b>›</b></button>)}</section>}
-    <button className="weather-card" onClick={() => go("weather")}><div><p>{weatherLocation.name} 날씨</p><strong>예보</strong><span>여러 예보모델 비교 결과 보기</span></div><div className="sun" aria-hidden="true">☀</div></button>
-    <section className="section-block"><div className="section-title"><h2>오늘 일정</h2><button onClick={() => go("calendar")}>전체보기</button></div>{todayEvents.length > 0 ? <article className="schedule-card"><div className="time"><strong>{todayEvents[0].time}</strong><span>{Number(todayEvents[0].time.slice(0, 2)) < 12 ? "오전" : "오후"}</span></div><div className="divider"/><div><strong>{todayEvents[0].title}</strong><p>{todayEvents[0].content || (todayEvents[0].repeatYearly ? "매년 반복 일정" : "내용 없음")}</p></div></article> : <button className="empty-schedule" onClick={() => go("calendar")}>오늘 예정된 일정이 없어요 · 일정 추가</button>}</section>
+    <HomeWeather location={weatherLocation} openDetails={() => go("weather")}/>
+    {reminderMessages.length > 0 && <section className="reminder-messages" aria-label="일정 알림">{reminderMessages.map(({ event, days }) => <button onClick={() => go("calendar")} key={event.id}><span>🔔</span><div><strong>{days}일 후 일정이 있어요</strong><p>{event.title} · {event.allDay ? "종일" : event.time}</p></div><b>›</b></button>)}</section>}
+    <section className="section-block"><div className="section-title"><h2>오늘 일정</h2><button onClick={() => go("calendar")}>전체보기</button></div>{todayEvents.length > 0 ? <article className="schedule-card"><div className="time"><strong>{todayEvents[0].allDay ? "종일" : todayEvents[0].time}</strong>{!todayEvents[0].allDay && <span>{Number(todayEvents[0].time.slice(0, 2)) < 12 ? "오전" : "오후"}</span>}</div><div className="divider"/><div><strong>{todayEvents[0].title}</strong><p>{todayEvents[0].content || (todayEvents[0].repeatYearly ? "매년 반복 일정" : "내용 없음")}</p></div></article> : <button className="empty-schedule" onClick={() => go("calendar")}>오늘 예정된 일정이 없어요 · 일정 추가</button>}</section>
     <section className="section-block"><div className="section-title"><h2>할 일</h2><span className="count">{activeItems.length}개 남음</span></div><div className="todo-list">{activeItems.slice(0, 2).map(item => <label key={item.id}><input type="checkbox" checked={item.completed} onChange={() => setWorkItems(items => items.map(current => current.id === item.id ? { ...current, completed: true } : current))}/> {item.title}</label>)}{activeItems.length === 0 && <button className="all-done" onClick={() => go("work")}>오늘 할 일을 모두 마쳤어요 ✓</button>}</div></section>
+    <button className="quick-input home-quick-input" onClick={openVoice}><span className="mic">●</span><span>메모나 일정을 말해보세요</span><strong>＋</strong></button>
     <section className="section-block"><div className="section-title"><h2>최근 메모</h2><button onClick={() => go("memo")}>전체보기</button></div><div className="recent-memo-list">{recentMemos.map(memo => <button onClick={() => go("memo")} key={memo.id}><div><strong>{memo.title}</strong><p>{memo.content || "내용 없음"}</p></div><span>›</span></button>)}{recentMemos.length === 0 && <button className="empty-recent" onClick={() => go("memo")}>아직 메모가 없어요 · 메모 작성</button>}</div></section>
     <section className="shortcut-grid"><button onClick={() => go("memo")}><span>📝</span><strong>빠른 메모</strong><small>바로 기록하기</small></button><button onClick={() => go("work")}><span>✅</span><strong>업무 메모</strong><small>진행할 업무 보기</small></button></section>
   </>;
@@ -349,6 +424,7 @@ function CalendarView({ events, setEvents, openVoice }: { events: CalendarEvent[
   const [title, setTitle] = useState("");
   const [date, setDate] = useState(selectedDate);
   const [time, setTime] = useState("09:00");
+  const [allDay, setAllDay] = useState(false);
   const [content, setContent] = useState("");
   const [repeatYearly, setRepeatYearly] = useState(false);
   const [calendarType, setCalendarType] = useState<"solar" | "lunar">("solar");
@@ -363,12 +439,17 @@ function CalendarView({ events, setEvents, openVoice }: { events: CalendarEvent[
   const startDay = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const cellCount = Math.ceil((startDay + daysInMonth) / 7) * 7;
-  const selectedEvents = events.filter(event => trash ? event.deleted : !event.deleted && eventOccursOn(event, selectedDate)).sort((a, b) => a.time.localeCompare(b.time));
-  const openNewEvent = () => { setEditingId(null); setTitle(""); setDate(selectedDate); setTime("09:00"); setContent(""); setRepeatYearly(false); setCalendarType("solar"); setReminder3Days(true); setReminder1Day(true); setWriting(true); };
-  const openEditEvent = (event: CalendarEvent) => { setEditingId(event.id); setTitle(event.title); setDate(event.date); setTime(event.time); setContent(event.content ?? ""); setRepeatYearly(Boolean(event.repeatYearly)); setCalendarType(event.calendarType ?? "solar"); setReminder3Days(Boolean(event.reminder3Days)); setReminder1Day(Boolean(event.reminder1Day)); setWriting(true); };
+  const selectedEvents = events.filter(event => trash ? event.deleted : !event.deleted && eventOccursOn(event, selectedDate)).sort((a, b) => Number(Boolean(b.allDay)) - Number(Boolean(a.allDay)) || a.time.localeCompare(b.time));
+  const openNewEvent = () => { setEditingId(null); setTitle(""); setDate(selectedDate); setTime("09:00"); setAllDay(false); setContent(""); setRepeatYearly(false); setCalendarType("solar"); setReminder3Days(true); setReminder1Day(true); setWriting(true); };
+  const openEditEvent = (event: CalendarEvent) => { setEditingId(event.id); setTitle(event.title); setDate(event.date); setTime(event.time); setAllDay(Boolean(event.allDay)); setContent(event.content ?? ""); setRepeatYearly(Boolean(event.repeatYearly)); setCalendarType(event.calendarType ?? "solar"); setReminder3Days(Boolean(event.reminder3Days)); setReminder1Day(Boolean(event.reminder1Day)); setWriting(true); };
+  const setPeriod = (period: "am" | "pm") => {
+    const [hour, minute] = time.split(":").map(Number);
+    const nextHour = period === "am" ? hour % 12 : (hour % 12) + 12;
+    setTime(`${String(nextHour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`);
+  };
   const saveEvent = () => {
     if (!title.trim()) return;
-    const savedEvent = { title: title.trim(), date, time, content: content.trim(), repeatYearly, calendarType, reminder3Days, reminder1Day };
+    const savedEvent = { title: title.trim(), date, time, allDay, content: content.trim(), repeatYearly, calendarType, reminder3Days, reminder1Day };
     if (editingId) setEvents(current => current.map(event => event.id === editingId ? { ...event, ...savedEvent } : event));
     else setEvents(current => [...current, { id: Date.now(), ...savedEvent, deleted: false }]);
     const displayDate = repeatYearly && calendarType === "lunar" ? lunarToSolar(year, Number(date.slice(5, 7)), Number(date.slice(8, 10))) : date;
@@ -408,8 +489,8 @@ function CalendarView({ events, setEvents, openVoice }: { events: CalendarEvent[
     const resource: Record<string, unknown> = {
       summary: event.title,
       description: `${event.content || ""}\n\n나의 비서 앱에서 등록`,
-      start: { dateTime: startDateTime, timeZone: "Asia/Seoul" },
-      end: { dateTime: end.toISOString(), timeZone: "Asia/Seoul" },
+      start: event.allDay ? { date: occurrenceDate } : { dateTime: startDateTime, timeZone: "Asia/Seoul" },
+      end: event.allDay ? { date: localDateKey(new Date(new Date(`${occurrenceDate}T12:00:00`).getTime() + 86400000)) } : { dateTime: end.toISOString(), timeZone: "Asia/Seoul" },
       reminders: { useDefault: false, overrides: reminders },
     };
     if (event.repeatYearly && event.calendarType === "solar") resource.recurrence = ["RRULE:FREQ=YEARLY"];
@@ -447,7 +528,8 @@ function CalendarView({ events, setEvents, openVoice }: { events: CalendarEvent[
     {writing && <section className="calendar-editor">
       <strong>{editingId ? "일정 수정" : "새 일정"}</strong>
       <label>일정 제목<input value={title} onChange={event => setTitle(event.target.value)} placeholder="예: 어머니 생신" autoFocus/></label>
-      <div className="calendar-fields"><label>{repeatYearly && calendarType === "lunar" ? "음력 날짜" : "날짜"}<input type="date" value={date} onChange={event => setDate(event.target.value)}/></label><label>시간<input type="time" value={time} onChange={event => setTime(event.target.value)}/></label></div>
+      <div className="calendar-fields"><label>{repeatYearly && calendarType === "lunar" ? "음력 날짜" : "날짜"}<input type="date" value={date} onChange={event => setDate(event.target.value)}/></label>{!allDay && <label>시간<input type="time" value={time} onChange={event => setTime(event.target.value)}/></label>}</div>
+      <div className="time-mode-row"><button type="button" className={allDay ? "selected" : ""} onClick={() => setAllDay(true)}>종일</button><button type="button" className={!allDay && Number(time.slice(0, 2)) < 12 ? "selected" : ""} onClick={() => { setAllDay(false); setPeriod("am"); }}>오전</button><button type="button" className={!allDay && Number(time.slice(0, 2)) >= 12 ? "selected" : ""} onClick={() => { setAllDay(false); setPeriod("pm"); }}>오후</button></div>
       <label>내용<textarea value={content} onChange={event => setContent(event.target.value)} placeholder="주소, 준비물, 자세한 메모 등을 길게 적을 수 있어요" rows={4}/></label>
       <label className="check-option"><input type="checkbox" checked={repeatYearly} onChange={event => setRepeatYearly(event.target.checked)}/><span><strong>매년 반복</strong><small>생일·기념일처럼 매년 자동으로 표시</small></span></label>
       {repeatYearly && <div className="calendar-type"><button className={calendarType === "solar" ? "selected" : ""} onClick={() => setCalendarType("solar")}>양력</button><button className={calendarType === "lunar" ? "selected" : ""} onClick={() => setCalendarType("lunar")}>음력</button></div>}
@@ -457,7 +539,7 @@ function CalendarView({ events, setEvents, openVoice }: { events: CalendarEvent[
     </section>}
     <section className="section-block calendar-list">
       <div className="section-title"><h2>{trash ? "삭제한 일정" : `${Number(selectedDate.slice(5, 7))}월 ${Number(selectedDate.slice(8, 10))}일 일정`}</h2><span className="count">{selectedEvents.length}개</span></div>
-      {selectedEvents.map(event => <article className="schedule-card" key={event.id}><div className="time"><strong>{event.time}</strong><span>{Number(event.time.slice(0, 2)) < 12 ? "오전" : "오후"}</span></div><div className="divider"/><div className="event-info"><strong>{event.title}</strong><p>{event.content || "내용 없음"}</p><div className="event-badges">{event.repeatYearly && <span>매년 · {event.calendarType === "lunar" ? "음력" : "양력"}</span>}{event.reminder3Days && <span>3일 전 메시지</span>}{event.reminder1Day && <span>1일 전 메시지</span>}{event.googleEventId && <span>Google 저장됨</span>}</div><div>{trash ? <><button onClick={() => setEvents(current => current.map(item => item.id === event.id ? { ...item, deleted: false } : item))}>복구</button><button className="danger" onClick={() => { if (window.confirm("이 일정을 영구 삭제할까요?")) setEvents(current => current.filter(item => item.id !== event.id)); }}>영구 삭제</button></> : <>{googleToken && !event.googleEventId && <button className="google-send" disabled={syncingId === event.id} onClick={() => syncEventToGoogle(event)}>{syncingId === event.id ? "전송 중" : "Google로 보내기"}</button>}{event.googleEventUrl && <a className="google-open" href={event.googleEventUrl} target="_blank" rel="noreferrer">Google에서 보기</a>}<button onClick={() => openEditEvent(event)}>수정</button><button onClick={() => moveToTrash(event.id)}>삭제</button></>}</div></div></article>)}
+      {selectedEvents.map(event => <article className="schedule-card" key={event.id}><div className="time"><strong>{event.allDay ? "종일" : event.time}</strong>{!event.allDay && <span>{Number(event.time.slice(0, 2)) < 12 ? "오전" : "오후"}</span>}</div><div className="divider"/><div className="event-info"><strong>{event.title}</strong><p>{event.content || "내용 없음"}</p><div className="event-badges">{event.allDay && <span>종일</span>}{event.repeatYearly && <span>매년 · {event.calendarType === "lunar" ? "음력" : "양력"}</span>}{event.reminder3Days && <span>3일 전 메시지</span>}{event.reminder1Day && <span>1일 전 메시지</span>}{event.googleEventId && <span>Google 저장됨</span>}</div><div>{trash ? <><button onClick={() => setEvents(current => current.map(item => item.id === event.id ? { ...item, deleted: false } : item))}>복구</button><button className="danger" onClick={() => { if (window.confirm("이 일정을 영구 삭제할까요?")) setEvents(current => current.filter(item => item.id !== event.id)); }}>영구 삭제</button></> : <>{googleToken && !event.googleEventId && <button className="google-send" disabled={syncingId === event.id} onClick={() => syncEventToGoogle(event)}>{syncingId === event.id ? "전송 중" : "Google로 보내기"}</button>}{event.googleEventUrl && <a className="google-open" href={event.googleEventUrl} target="_blank" rel="noreferrer">Google에서 보기</a>}<button onClick={() => openEditEvent(event)}>수정</button><button onClick={() => moveToTrash(event.id)}>삭제</button></>}</div></div></article>)}
       {selectedEvents.length === 0 && <div className="empty-memos"><strong>{trash ? "휴지통이 비어 있어요" : "이날은 일정이 없어요"}</strong><p>{trash ? "삭제한 일정이 이곳에 표시됩니다." : "새 일정을 추가해 보세요."}</p></div>}
     </section>
     {!trash && !writing && <button className="floating-button" onClick={openNewEvent}>＋ 새 일정</button>}
@@ -532,12 +614,38 @@ function MoreView({ go, exportData, importData }: { go: (tab: Tab) => void; expo
 
 export default function Home() {
   const [tab, setTab] = useState<Tab>("home");
+  const tabRef = useRef<Tab>("home");
   const [voiceOpen, setVoiceOpen] = useState(false);
   const [memos, setMemos] = useState<Memo[]>(sampleMemos);
   const [workItems, setWorkItems] = useState<WorkItem[]>(sampleWorkItems);
   const [events, setEvents] = useState<CalendarEvent[]>(sampleEvents);
   const [weatherLocation, setWeatherLocation] = useState<WeatherLocation>(defaultWeatherLocation);
   const [storageReady, setStorageReady] = useState(false);
+  useEffect(() => {
+    tabRef.current = tab;
+  }, [tab]);
+  useEffect(() => {
+    window.history.replaceState({ personalAssistantTab: "home" }, "");
+    const handleBack = () => {
+      setVoiceOpen(false);
+      setTab("home");
+      tabRef.current = "home";
+    };
+    window.addEventListener("popstate", handleBack);
+    return () => window.removeEventListener("popstate", handleBack);
+  }, []);
+  const navigateTab = (nextTab: Tab) => {
+    const currentTab = tabRef.current;
+    if (nextTab === currentTab) return;
+    if (nextTab === "home" && currentTab !== "home") {
+      window.history.back();
+      return;
+    }
+    if (currentTab === "home") window.history.pushState({ personalAssistantTab: nextTab }, "");
+    else window.history.replaceState({ personalAssistantTab: nextTab }, "");
+    tabRef.current = nextTab;
+    setTab(nextTab);
+  };
   useEffect(() => {
     const loadSavedData = window.setTimeout(() => {
       const savedMemos = window.localStorage.getItem("my-assistant-memos");
@@ -561,9 +669,9 @@ export default function Home() {
   }, []);
   const saveVoiceEntry = (kind: VoiceKind, text: string, date: string, time: string) => {
     const title = voiceTitle(text);
-    if (kind === "memo") { setMemos(current => [{ id: Date.now(), title, content: text, category: "개인", pinned: false, deleted: false, createdAt: "방금 전" }, ...current]); setTab("memo"); }
-    if (kind === "work") { setWorkItems(current => [{ id: Date.now(), title, details: text, project: "음성 입력", completed: false, createdAt: "방금 전" }, ...current]); setTab("work"); }
-    if (kind === "calendar") { setEvents(current => [...current, { id: Date.now(), title, date, time, content: text, repeatYearly: false, calendarType: "solar", reminder3Days: true, reminder1Day: true, deleted: false }]); setTab("calendar"); }
+    if (kind === "memo") { setMemos(current => [{ id: Date.now(), title, content: text, category: "개인", pinned: false, deleted: false, createdAt: "방금 전" }, ...current]); navigateTab("memo"); }
+    if (kind === "work") { setWorkItems(current => [{ id: Date.now(), title, details: text, project: "음성 입력", completed: false, createdAt: "방금 전" }, ...current]); navigateTab("work"); }
+    if (kind === "calendar") { setEvents(current => [...current, { id: Date.now(), title, date, time, allDay: false, content: text, repeatYearly: false, calendarType: "solar", reminder3Days: true, reminder1Day: true, deleted: false }]); navigateTab("calendar"); }
     setVoiceOpen(false);
   };
   const exportData = () => {
@@ -589,6 +697,6 @@ export default function Home() {
       window.alert("이 앱에서 만든 올바른 백업 파일이 아닙니다.");
     }
   };
-  const views = { home: <HomeView go={setTab} memos={memos} workItems={workItems} setWorkItems={setWorkItems} events={events} weatherLocation={weatherLocation} openVoice={() => setVoiceOpen(true)}/>, memo: <MemoView memos={memos} setMemos={setMemos}/>, work: <WorkView items={workItems} setItems={setWorkItems}/>, calendar: <CalendarView events={events} setEvents={setEvents} openVoice={() => setVoiceOpen(true)}/>, more: <MoreView go={setTab} exportData={exportData} importData={importData}/>, weather: <WeatherView back={() => setTab("more")} location={weatherLocation} setLocation={setWeatherLocation}/> };
-  return <main className="app-shell"><section className="phone-screen"><div className="view-content" key={tab}>{views[tab]}</div><nav className="bottom-nav" aria-label="주요 메뉴">{menuItems.map(item=><button className={tab===item.id?"active":""} onClick={()=>setTab(item.id)} key={item.id}><span>{item.icon}</span>{item.label}</button>)}</nav>{voiceOpen && <VoiceCapture close={() => setVoiceOpen(false)} save={saveVoiceEntry}/>}</section></main>;
+  const views = { home: <HomeView go={navigateTab} memos={memos} workItems={workItems} setWorkItems={setWorkItems} events={events} weatherLocation={weatherLocation} openVoice={() => setVoiceOpen(true)}/>, memo: <MemoView memos={memos} setMemos={setMemos}/>, work: <WorkView items={workItems} setItems={setWorkItems}/>, calendar: <CalendarView events={events} setEvents={setEvents} openVoice={() => setVoiceOpen(true)}/>, more: <MoreView go={navigateTab} exportData={exportData} importData={importData}/>, weather: <WeatherView back={() => navigateTab("more")} location={weatherLocation} setLocation={setWeatherLocation}/> };
+  return <main className="app-shell"><section className="phone-screen"><div className="view-content" key={tab}>{views[tab]}</div><nav className="bottom-nav" aria-label="주요 메뉴">{menuItems.map(item=><button className={tab===item.id?"active":""} onClick={()=>navigateTab(item.id)} key={item.id}><span>{item.icon}</span>{item.label}</button>)}</nav>{voiceOpen && <VoiceCapture close={() => setVoiceOpen(false)} save={saveVoiceEntry}/>}</section></main>;
 }
