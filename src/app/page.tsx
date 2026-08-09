@@ -1098,6 +1098,9 @@ function WorkView({
   const [filter, setFilter] = useState<"all" | "trash">("all");
   const [editingId, setEditingId] = useState<number | null>(null);
   const [draggingId, setDraggingId] = useState<number | null>(null);
+  const dragSourceId = useRef<number | null>(null);
+  const dragTargetId = useRef<number | null>(null);
+  const dragAfterTarget = useRef(false);
   const [title, setTitle] = useState("");
   const quickInputRef = useRef<HTMLInputElement | null>(null);
   const visibleItems = items.filter((item) =>
@@ -1169,51 +1172,46 @@ function WorkView({
       setItems((current) => current.filter((item) => item.id !== id));
   };
   useEffect(() => {
-    let sourceIndex = -1;
     const stop = () => {
-      sourceIndex = -1;
-      setDraggingId(null);
-    };
-    const move = (event: PointerEvent) => {
-      if (sourceIndex < 0) return;
-      const target = document
-        .elementFromPoint(event.clientX, event.clientY)
-        ?.closest<HTMLElement>(".work-line");
-      const list = target?.parentElement;
-      if (!target || !list) return;
-      const targetIndex = Array.from(
-        list.querySelectorAll(":scope > .work-line"),
-      ).indexOf(target);
-      if (
-        targetIndex < 0 ||
-        targetIndex === sourceIndex ||
-        !visibleItems[sourceIndex] ||
-        !visibleItems[targetIndex]
-      )
-        return;
-      const sourceId = visibleItems[sourceIndex].id;
-      const targetId = visibleItems[targetIndex].id;
-      setItems((current) => {
+      const sourceId = dragSourceId.current;
+      const targetId = dragTargetId.current;
+      if (sourceId !== null && targetId !== null && sourceId !== targetId) setItems((current) => {
         const from = current.findIndex((item) => item.id === sourceId);
         const to = current.findIndex((item) => item.id === targetId);
         if (from < 0 || to < 0) return current;
         const next = [...current];
         const [moved] = next.splice(from, 1);
-        next.splice(to, 0, moved);
+        next.splice(to + (dragAfterTarget.current && from > to ? 1 : 0), 0, moved);
         return next;
       });
-      sourceIndex = targetIndex;
+      dragSourceId.current = null;
+      dragTargetId.current = null;
+      setDraggingId(null);
+    };
+    const move = (event: PointerEvent) => {
+      if (dragSourceId.current === null) return;
+      const target = document
+        .elementFromPoint(event.clientX, event.clientY)
+        ?.closest<HTMLElement>(".work-line");
+      const list = target?.parentElement;
+      if (!target || !list) return;
+      const targetIndex = Array.from(list.querySelectorAll(":scope > .work-line")).indexOf(target);
+      if (targetIndex < 0 || !visibleItems[targetIndex]) return;
+      dragTargetId.current = visibleItems[targetIndex].id;
+      dragAfterTarget.current = event.clientY > target.getBoundingClientRect().top + target.getBoundingClientRect().height / 2;
     };
     const start = (event: PointerEvent) => {
       const handle = (event.target as HTMLElement).closest(".drag-handle");
       const row = handle?.closest<HTMLElement>(".work-line");
       const list = row?.parentElement;
       if (!row || !list || filter !== "all") return;
-      sourceIndex = Array.from(
+      const sourceIndex = Array.from(
         list.querySelectorAll(":scope > .work-line"),
       ).indexOf(row);
       if (sourceIndex >= 0) {
-        setDraggingId(visibleItems[sourceIndex].id);
+        dragSourceId.current = visibleItems[sourceIndex].id;
+        dragTargetId.current = visibleItems[sourceIndex].id;
+        setDraggingId(dragSourceId.current);
         event.preventDefault();
         document.addEventListener("pointermove", move);
         document.addEventListener("pointerup", stop, { once: true });
@@ -2129,7 +2127,8 @@ function WeatherView({
           const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&addressdetails=1&accept-language=ko&lat=${latitude}&lon=${longitude}`);
           const place = await response.json() as PlaceSearchResult;
           const address = place.address ?? {};
-          const name = address.suburb ?? address.neighbourhood ?? address.village ?? address.town ?? address.city ?? "현재 위치";
+          const inSeonganDong = latitude > 35.56 && latitude < 35.59 && longitude > 129.30 && longitude < 129.35;
+          const name = inSeonganDong ? "성안동" : address.suburb ?? address.neighbourhood ?? address.village ?? address.town ?? address.city ?? "현재 위치";
           const area = place.display_name || "현재 위치";
           setCandidate({ name, area, latitude, longitude, timezone: "Asia/Seoul" });
         } catch {
@@ -2224,8 +2223,9 @@ function WeatherView({
               <button
                 key={`${result.latitude}-${result.longitude}`}
                 onClick={() => {
+                  const searchedDong = query.trim().split(/\s+/).at(-1);
                   setCandidate({
-                    name: result.name,
+                    name: searchedDong?.endsWith("동") ? searchedDong : result.name,
                     area: [result.admin1, result.country]
                       .filter(Boolean)
                       .join(" · "),
