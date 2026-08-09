@@ -1453,6 +1453,7 @@ function CalendarView({
         Number(Boolean(b.allDay)) - Number(Boolean(a.allDay)) ||
         a.time.localeCompare(b.time),
     );
+  const anniversaries = events.filter((event) => !event.deleted && event.repeatYearly).sort((a, b) => (nextOccurrence(a) ?? "9999-12-31").localeCompare(nextOccurrence(b) ?? "9999-12-31"));
   const openNewEvent = () => {
     setEditingId(null);
     setTitle("");
@@ -1994,6 +1995,7 @@ function CalendarView({
           </div>
         )}
       </section>
+      {!trash && <section className="section-block anniversary-list"><div className="section-title"><h2>기념일 · 생일</h2><span className="count">{anniversaries.length}개</span></div>{anniversaries.length ? anniversaries.map(event => <button key={event.id} onClick={() => openEditEvent(event)}><span>{event.calendarType === "lunar" ? "☾ 음력" : "☀ 양력"}</span><strong>{event.title}</strong><small>{nextOccurrence(event)?.replaceAll("-", ".")} · 매년</small></button>) : <p>매년 반복으로 등록한 생일과 기념일이 여기에 표시됩니다.</p>}</section>}
       {!trash && !writing && (
         <button className="floating-button" onClick={openNewEvent}>
           ＋ 새 일정
@@ -2368,10 +2370,12 @@ function WeatherView({
 function MoreView({
   go,
   exportData,
+  exportText,
   importData,
 }: {
   go: (tab: Tab) => void;
   exportData: () => void;
+  exportText: () => void;
   importData: (file: File) => void;
 }) {
   const fileInput = useRef<HTMLInputElement | null>(null);
@@ -2396,6 +2400,11 @@ function MoreView({
             <strong>전체 데이터 백업</strong>
             <small>메모·업무·일정을 파일로 안전하게 저장</small>
           </div>
+          <b>↓</b>
+        </button>
+        <button onClick={exportText}>
+          <span>📄</span>
+          <div><strong>텍스트 파일로 내보내기</strong><small>메모·업무·일정을 읽기 쉬운 글로 저장</small></div>
           <b>↓</b>
         </button>
         <button onClick={() => fileInput.current?.click()}>
@@ -2651,6 +2660,11 @@ export default function Home() {
     link.click();
     URL.revokeObjectURL(url);
   };
+  const exportText = () => {
+    const text = ["나의 비서 기록", "", "[메모]", ...memos.filter(item => !item.deleted).map(item => `- ${item.title}${item.content ? `: ${item.content}` : ""}`), "", "[업무 메모]", ...workItems.filter(item => !item.archived).map(item => `- ${item.completed ? "[완료] " : ""}${item.title}`), "", "[일정]", ...events.filter(item => !item.deleted).map(item => `- ${item.date} ${item.allDay ? "종일" : item.time} | ${item.title}${item.repeatYearly ? " (매년)" : ""}`)].join("\n");
+    const url = URL.createObjectURL(new Blob([text], { type: "text/plain;charset=utf-8" }));
+    const link = document.createElement("a"); link.href = url; link.download = `나의비서-기록-${localDateKey()}.txt`; link.click(); URL.revokeObjectURL(url);
+  };
   const importData = async (file: File) => {
     try {
       const backup = JSON.parse(await file.text()) as BackupPayload;
@@ -2700,6 +2714,7 @@ export default function Home() {
       <MoreView
         go={navigateTab}
         exportData={exportData}
+        exportText={exportText}
         importData={importData}
       />
     ),
