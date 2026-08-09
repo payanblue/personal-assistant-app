@@ -1986,14 +1986,14 @@ h1 {
   font-size: 12px;
 }
 .work-line-title {
-  overflow: hidden;
   padding: 8px 1px;
   background: transparent !important;
   color: var(--ink) !important;
   font-size: 13px !important;
   text-align: left;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.45;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .work-line.completed .work-line-title {
   color: var(--muted) !important;
