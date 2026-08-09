@@ -1112,6 +1112,8 @@ function WorkView({
   const visibleItems = items.filter((item) =>
     filter === "trash" ? item.archived : !item.archived,
   );
+  const visibleItemsRef = useRef<WorkItem[]>(visibleItems);
+  useEffect(() => { visibleItemsRef.current = visibleItems; }, [visibleItems]);
   const addItem = () => {
     if (!title.trim()) return;
     setItems((current) => [
@@ -1210,8 +1212,8 @@ function WorkView({
       const list = target?.parentElement;
       if (!target || !list) return;
       const targetIndex = Array.from(list.querySelectorAll(":scope > .work-line")).indexOf(target);
-      if (targetIndex < 0 || !visibleItems[targetIndex]) return;
-      dragTargetId.current = visibleItems[targetIndex].id;
+      if (targetIndex < 0 || !visibleItemsRef.current[targetIndex]) return;
+      dragTargetId.current = visibleItemsRef.current[targetIndex].id;
       dragAfterTarget.current = event.clientY > target.getBoundingClientRect().top + target.getBoundingClientRect().height / 2;
     };
     const start = (event: PointerEvent) => {
@@ -1226,7 +1228,7 @@ function WorkView({
         activeRow = row;
         startY = event.clientY;
         row.setPointerCapture?.(event.pointerId);
-        dragSourceId.current = visibleItems[sourceIndex].id;
+        dragSourceId.current = visibleItemsRef.current[sourceIndex].id;
         dragTargetId.current = visibleItems[sourceIndex].id;
         setDraggingId(dragSourceId.current);
         event.preventDefault();
@@ -1242,7 +1244,7 @@ function WorkView({
       document.removeEventListener("pointerup", stop);
       document.removeEventListener("pointercancel", stop);
     };
-  }, [filter, visibleItems, setItems]);
+  }, [filter, setItems]);
 
   return (
     <>
