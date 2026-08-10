@@ -2676,13 +2676,15 @@ export default function Home() {
   }, [voiceOpen]);
   useEffect(() => {
     window.history.replaceState({ personalAssistantRoot: true }, "");
-    window.history.pushState({ personalAssistantTab: tabRef.current }, "");
-    const handleBack = () => {
+    if (tabRef.current !== "home")
+      window.history.pushState({ personalAssistantTab: tabRef.current }, "");
+    const handleBack = (event: PopStateEvent) => {
       if (voiceOpenRef.current) {
         voiceOpenRef.current = false;
         setVoiceOpen(false);
         return;
       }
+      if (!event.state?.personalAssistantRoot) return;
       setVoiceOpen(false);
       setTab("home");
       tabRef.current = "home";
