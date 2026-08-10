@@ -2288,12 +2288,17 @@ function WeatherView({
     setCandidate(null);
     setResults([]);
   };
+  const hourlyStartIndex = data?.best.hourly?.time
+    ? Math.max(0, data.best.hourly.time.findIndex((time) => time >= `${localDateKey()}T${String(new Date().getHours()).padStart(2, "0")}:00`))
+    : 0;
   const hourlyForecast = data?.best.hourly?.time
-    .slice(0, 72)
-    .map((time, index) => (
+    .slice(hourlyStartIndex, hourlyStartIndex + 72)
+    .map((time, offset) => {
+      const index = hourlyStartIndex + offset;
+      return (
       <article key={time}>
         <time>
-          {index === 0
+          {offset === 0
             ? "지금"
             : `${new Date(time).getMonth() + 1}/${new Date(time).getDate()} ${new Date(time).getHours()}시`}
         </time>
@@ -2313,7 +2318,8 @@ function WeatherView({
           return <><span>미세 {Math.round(air.hourly.pm10[airIndex] ?? 0)}</span><span>초미세 {Math.round(air.hourly.pm2_5[airIndex] ?? 0)}</span></>;
         })()}
       </article>
-    ));
+    );
+    });
 
   return (
     <>
