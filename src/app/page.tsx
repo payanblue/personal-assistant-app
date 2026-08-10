@@ -462,7 +462,7 @@ function HomeWeather({
   useEffect(() => {
     const common = `latitude=${location.latitude}&longitude=${location.longitude}&timezone=${encodeURIComponent(location.timezone)}&forecast_days=16&wind_speed_unit=ms`;
     const forecastUrl = `https://api.open-meteo.com/v1/forecast?${common}&current=temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code&hourly=temperature_2m,relative_humidity_2m,precipitation_probability,weather_code,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum,wind_speed_10m_max,sunrise,sunset`;
-    const airUrl = `https://air-quality-api.open-meteo.com/v1/air-quality?${common}&hourly=pm10,pm2_5`;
+    const airUrl = `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${location.latitude}&longitude=${location.longitude}&timezone=${encodeURIComponent(location.timezone)}&hourly=pm10,pm2_5`;
     Promise.all([fetch(forecastUrl), fetch(airUrl)])
       .then(async ([weatherResponse, airResponse]) => {
         if (!weatherResponse.ok || !airResponse.ok)
@@ -2439,6 +2439,11 @@ function WeatherView({
           </section>
           <section className="forecast-list">
             {data.best.daily.time.map((date, index) => {
+              const rainChance = data.best.daily.precipitation_probability_max?.[index] ?? 0;
+              const rainAmount = data.best.daily.precipitation_sum[index] ?? 0;
+              const dayIcon = rainChance >= 40 || rainAmount >= 0.5
+                ? weatherIcon(data.best.daily.weather_code[index])
+                : weatherIcon(Math.min(data.best.daily.weather_code[index], 3));
               const rainVotes = data.models.filter(
                 (model) => (model.daily.precipitation_sum[index] ?? 0) >= 0.2,
               ).length;
@@ -2456,7 +2461,7 @@ function WeatherView({
                     <small>{date.slice(5).replace("-", ".")}</small>
                   </div>
                   <span className="forecast-icon">
-                    {weatherIcon(data.best.daily.weather_code[index])}
+                    {dayIcon}
                   </span>
                   <div className="forecast-temp">
                     <strong>
@@ -2469,8 +2474,7 @@ function WeatherView({
                   <div className="forecast-rain">
                     <strong>
                       비{" "}
-                      {data.best.daily.precipitation_probability_max?.[index] ??
-                        0}
+                      {rainChance}
                       %
                     </strong>
                     <small>
