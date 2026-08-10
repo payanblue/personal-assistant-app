@@ -2655,6 +2655,7 @@ export default function Home() {
   });
   const tabRef = useRef<Tab>(tab);
   const [voiceOpen, setVoiceOpen] = useState(false);
+  const voiceOpenRef = useRef(false);
   const [memos, setMemos] = useState<Memo[]>(sampleMemos);
   const [workItems, setWorkItems] = useState<WorkItem[]>(sampleWorkItems);
   const [events, setEvents] = useState<CalendarEvent[]>(sampleEvents);
@@ -2671,8 +2672,16 @@ export default function Home() {
     window.sessionStorage.setItem("my-assistant-active-tab", tab);
   }, [tab]);
   useEffect(() => {
+    voiceOpenRef.current = voiceOpen;
+  }, [voiceOpen]);
+  useEffect(() => {
     window.history.replaceState({ personalAssistantTab: "home" }, "");
     const handleBack = () => {
+      if (voiceOpenRef.current) {
+        voiceOpenRef.current = false;
+        setVoiceOpen(false);
+        return;
+      }
       setVoiceOpen(false);
       setTab("home");
       tabRef.current = "home";
@@ -2694,6 +2703,11 @@ export default function Home() {
     tabRef.current = nextTab;
     setTab(nextTab);
     window.requestAnimationFrame(() => window.scrollTo(0, 0));
+  };
+  const openVoiceSheet = () => {
+    window.history.pushState({ personalAssistantVoice: true }, "");
+    voiceOpenRef.current = true;
+    setVoiceOpen(true);
   };
   useEffect(() => {
     const loadSavedData = window.setTimeout(() => {
@@ -2850,6 +2864,7 @@ export default function Home() {
       ]);
       navigateTab("calendar");
     }
+    voiceOpenRef.current = false;
     setVoiceOpen(false);
   };
   const exportData = () => {
@@ -2912,7 +2927,7 @@ export default function Home() {
         events={events}
         weatherLocation={weatherLocation}
         chargers={chargers}
-        openVoice={() => setVoiceOpen(true)}
+        openVoice={openVoiceSheet}
       />
     ),
     memo: <MemoView memos={memos} setMemos={setMemos} />,
@@ -2921,7 +2936,7 @@ export default function Home() {
       <CalendarView
         events={events}
         setEvents={setEvents}
-        openVoice={() => setVoiceOpen(true)}
+        openVoice={openVoiceSheet}
       />
     ),
     charge: <ChargerView chargers={chargers} setChargers={setChargers} />,
@@ -2963,7 +2978,7 @@ export default function Home() {
         </nav>
         {voiceOpen && (
           <VoiceCapture
-            close={() => setVoiceOpen(false)}
+            close={() => window.history.back()}
             save={saveVoiceEntry}
           />
         )}
