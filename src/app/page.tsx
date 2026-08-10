@@ -460,8 +460,8 @@ function HomeWeather({
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
-    const common = `latitude=${location.latitude}&longitude=${location.longitude}&timezone=${encodeURIComponent(location.timezone)}&forecast_days=2&wind_speed_unit=ms`;
-    const forecastUrl = `https://api.open-meteo.com/v1/forecast?${common}&current=temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code&hourly=temperature_2m,relative_humidity_2m,precipitation_probability,weather_code,wind_speed_10m&daily=sunrise,sunset`;
+    const common = `latitude=${location.latitude}&longitude=${location.longitude}&timezone=${encodeURIComponent(location.timezone)}&forecast_days=16&wind_speed_unit=ms`;
+    const forecastUrl = `https://api.open-meteo.com/v1/forecast?${common}&current=temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code&hourly=temperature_2m,relative_humidity_2m,precipitation_probability,weather_code,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum,wind_speed_10m_max,sunrise,sunset`;
     const airUrl = `https://air-quality-api.open-meteo.com/v1/air-quality?${common}&hourly=pm10,pm2_5`;
     Promise.all([fetch(forecastUrl), fetch(airUrl)])
       .then(async ([weatherResponse, airResponse]) => {
@@ -2645,8 +2645,12 @@ function MoreView({
 }
 
 export default function Home() {
-  const [tab, setTab] = useState<Tab>("home");
-  const tabRef = useRef<Tab>("home");
+  const [tab, setTab] = useState<Tab>(() => {
+    if (typeof window === "undefined") return "home";
+    const saved = window.sessionStorage.getItem("my-assistant-active-tab") as Tab | null;
+    return menuItems.some((item) => item.id === saved) ? saved! : "home";
+  });
+  const tabRef = useRef<Tab>(tab);
   const [voiceOpen, setVoiceOpen] = useState(false);
   const [memos, setMemos] = useState<Memo[]>(sampleMemos);
   const [workItems, setWorkItems] = useState<WorkItem[]>(sampleWorkItems);
@@ -2661,6 +2665,7 @@ export default function Home() {
   const [storageReady, setStorageReady] = useState(false);
   useEffect(() => {
     tabRef.current = tab;
+    window.sessionStorage.setItem("my-assistant-active-tab", tab);
   }, [tab]);
   useEffect(() => {
     window.history.replaceState({ personalAssistantTab: "home" }, "");
@@ -2668,6 +2673,7 @@ export default function Home() {
       setVoiceOpen(false);
       setTab("home");
       tabRef.current = "home";
+      window.sessionStorage.setItem("my-assistant-active-tab", "home");
     };
     window.addEventListener("popstate", handleBack);
     return () => window.removeEventListener("popstate", handleBack);
