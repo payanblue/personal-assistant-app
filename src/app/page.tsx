@@ -2441,7 +2441,7 @@ function WeatherView({
             {data.best.daily.time.map((date, index) => {
               const rainChance = data.best.daily.precipitation_probability_max?.[index] ?? 0;
               const rainAmount = data.best.daily.precipitation_sum[index] ?? 0;
-              const dayIcon = rainChance >= 40 || rainAmount >= 0.5
+              const dayIcon = rainChance >= 60 && rainAmount >= 1
                 ? weatherIcon(data.best.daily.weather_code[index])
                 : weatherIcon(Math.min(data.best.daily.weather_code[index], 3));
               const rainVotes = data.models.filter(
