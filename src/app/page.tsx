@@ -2441,12 +2441,16 @@ function WeatherView({
             {data.best.daily.time.map((date, index) => {
               const rainChance = data.best.daily.precipitation_probability_max?.[index] ?? 0;
               const rainAmount = data.best.daily.precipitation_sum[index] ?? 0;
-              const dayIcon = rainChance >= 60 && rainAmount >= 1
+              const rainVotes = data.models.filter(
+                (model) => (model.daily.precipitation_sum[index] ?? 0) >= 1,
+              ).length;
+              const hasModelDay = data.models.some((model) => model.daily.time[index]);
+              const confirmedRain = hasModelDay
+                ? rainVotes >= 2 && rainChance >= 50 && rainAmount >= 1
+                : rainChance >= 60 && rainAmount >= 1;
+              const dayIcon = confirmedRain
                 ? weatherIcon(data.best.daily.weather_code[index])
                 : weatherIcon(Math.min(data.best.daily.weather_code[index], 3));
-              const rainVotes = data.models.filter(
-                (model) => (model.daily.precipitation_sum[index] ?? 0) >= 0.2,
-              ).length;
               const agreement =
                 rainVotes === 0 || rainVotes === data.models.length
                   ? "높음"
