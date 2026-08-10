@@ -75,6 +75,7 @@ type WeatherResponse = {
     temperature_2m: number[];
     relative_humidity_2m: number[];
     precipitation_probability: number[];
+    precipitation: number[];
     weather_code: number[];
     wind_speed_10m: number[];
   };
@@ -461,7 +462,7 @@ function HomeWeather({
 
   useEffect(() => {
     const common = `latitude=${location.latitude}&longitude=${location.longitude}&timezone=${encodeURIComponent(location.timezone)}&forecast_days=16&wind_speed_unit=ms`;
-    const forecastUrl = `https://api.open-meteo.com/v1/forecast?${common}&current=temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code&hourly=temperature_2m,relative_humidity_2m,precipitation_probability,weather_code,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum,wind_speed_10m_max,sunrise,sunset`;
+    const forecastUrl = `https://api.open-meteo.com/v1/forecast?${common}&current=temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code&hourly=temperature_2m,relative_humidity_2m,precipitation_probability,precipitation,weather_code,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum,wind_speed_10m_max,sunrise,sunset`;
     const airUrl = `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${location.latitude}&longitude=${location.longitude}&timezone=${encodeURIComponent(location.timezone)}&hourly=pm10,pm2_5`;
     Promise.all([fetch(forecastUrl), fetch(airUrl)])
       .then(async ([weatherResponse, airResponse]) => {
@@ -573,6 +574,7 @@ function HomeWeather({
               <span className="hourly-rain">
                 비 {forecast.hourly?.precipitation_probability[index] ?? 0}%
               </span>
+              <span>강수 {(forecast.hourly?.precipitation[index] ?? 0).toFixed(1)}mm</span>
               <span>
                 바람 {Math.round(forecast.hourly?.wind_speed_10m[index] ?? 0)}
               </span>
@@ -2239,7 +2241,7 @@ function WeatherView({
     const modelLocationQuery = `latitude=${location.latitude}&longitude=${location.longitude}&timezone=${encodeURIComponent(location.timezone)}&forecast_days=5&wind_speed_unit=ms`;
     const modelDaily =
       "weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,wind_speed_10m_max";
-    const bestUrl = `https://api.open-meteo.com/v1/forecast?${locationQuery}&current=temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code&hourly=temperature_2m,relative_humidity_2m,precipitation_probability,weather_code,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum,wind_speed_10m_max`;
+    const bestUrl = `https://api.open-meteo.com/v1/forecast?${locationQuery}&current=temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code&hourly=temperature_2m,relative_humidity_2m,precipitation_probability,precipitation,weather_code,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum,wind_speed_10m_max`;
     const airUrl = `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${location.latitude}&longitude=${location.longitude}&timezone=${encodeURIComponent(location.timezone)}&hourly=pm10,pm2_5`;
     const modelUrls = ["ecmwf", "gfs", "jma"].map(
       (model) =>
@@ -2309,6 +2311,7 @@ function WeatherView({
         <span className="hourly-rain">
           비 {data.best.hourly?.precipitation_probability[index] ?? 0}%
         </span>
+        <span>강수 {(data.best.hourly?.precipitation[index] ?? 0).toFixed(1)}mm</span>
         <span>
           바람 {Math.round(data.best.hourly?.wind_speed_10m[index] ?? 0)}
         </span>
@@ -2482,7 +2485,7 @@ function WeatherView({
                       %
                     </strong>
                     <small>
-                      모델 {rainVotes}/3 · 일치도 {agreement}
+                      예상 {rainAmount.toFixed(1)}mm · 모델 {rainVotes}/3 · 일치도 {agreement}
                     </small>
                   </div>
                 </article>
