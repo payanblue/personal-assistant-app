@@ -2446,8 +2446,8 @@ function WeatherView({
               ).length;
               const hasModelDay = data.models.some((model) => model.daily.time[index]);
               const confirmedRain = hasModelDay
-                ? rainVotes >= 2 && rainChance >= 50 && rainAmount >= 1
-                : rainChance >= 60 && rainAmount >= 1;
+                ? rainVotes === data.models.length && rainChance >= 70 && rainAmount >= 2
+                : rainChance >= 70 && rainAmount >= 2;
               const dayIcon = confirmedRain
                 ? weatherIcon(data.best.daily.weather_code[index])
                 : weatherIcon(Math.min(data.best.daily.weather_code[index], 3));
