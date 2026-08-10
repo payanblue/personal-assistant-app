@@ -571,9 +571,7 @@ function HomeWeather({
               <strong>
                 {Math.round(forecast.hourly?.temperature_2m[index] ?? 0)}°
               </strong>
-              <span className="hourly-rain">
-                비 {forecast.hourly?.precipitation_probability[index] ?? 0}%
-              </span>
+              {(forecast.hourly?.precipitation_probability[index] ?? 0) > 10 && <span className="hourly-rain">비 {forecast.hourly?.precipitation_probability[index] ?? 0}%</span>}
               {(forecast.hourly?.precipitation[index] ?? 0) > 1 && <span>강수 {(forecast.hourly?.precipitation[index] ?? 0).toFixed(1)}mm</span>}
               <span>
                 바람 {Math.round(forecast.hourly?.wind_speed_10m[index] ?? 0)}
@@ -993,6 +991,7 @@ function MemoView({
     setContent("");
     setCategory("개인");
     setWriting(true);
+    window.setTimeout(() => document.querySelector(".memo-editor")?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
   };
   const openEdit = (memo: Memo) => {
     setEditing(memo);
@@ -1000,6 +999,7 @@ function MemoView({
     setContent(memo.content);
     setCategory(memo.category);
     setWriting(true);
+    window.setTimeout(() => document.querySelector(".memo-editor")?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
   };
   const saveMemo = () => {
     if (!title.trim() && !content.trim()) return;
@@ -1580,6 +1580,7 @@ function CalendarView({
     setReminder3Days(true);
     setReminder1Day(true);
     setWriting(true);
+    window.setTimeout(() => document.querySelector(".calendar-editor")?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
   };
   const openEditEvent = (event: CalendarEvent) => {
     setEditingId(event.id);
@@ -1593,6 +1594,7 @@ function CalendarView({
     setReminder3Days(Boolean(event.reminder3Days));
     setReminder1Day(Boolean(event.reminder1Day));
     setWriting(true);
+    window.setTimeout(() => document.querySelector(".calendar-editor")?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
   };
   const setPeriod = (period: "am" | "pm") => {
     const [hour, minute] = time.split(":").map(Number);
@@ -2308,9 +2310,7 @@ function WeatherView({
         <strong>
           {Math.round(data.best.hourly?.temperature_2m[index] ?? 0)}°
         </strong>
-        <span className="hourly-rain">
-          비 {data.best.hourly?.precipitation_probability[index] ?? 0}%
-        </span>
+        {(data.best.hourly?.precipitation_probability[index] ?? 0) > 10 && <span className="hourly-rain">비 {data.best.hourly?.precipitation_probability[index] ?? 0}%</span>}
         {(data.best.hourly?.precipitation[index] ?? 0) > 1 && <span>강수 {(data.best.hourly?.precipitation[index] ?? 0).toFixed(1)}mm</span>}
         <span>
           바람 {Math.round(data.best.hourly?.wind_speed_10m[index] ?? 0)}
@@ -2480,9 +2480,7 @@ function WeatherView({
                   </div>
                   <div className="forecast-rain">
                     <strong>
-                      비{" "}
-                      {rainChance}
-                      %
+                      {rainChance > 10 ? `비 ${rainChance}%` : "강수 가능성 낮음"}
                     </strong>
                     <small>{rainAmount > 1 ? `예상 ${rainAmount.toFixed(1)}mm · ` : ""}모델 {rainVotes}/3 · 일치도 {agreement}</small>
                   </div>
