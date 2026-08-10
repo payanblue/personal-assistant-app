@@ -2675,7 +2675,8 @@ export default function Home() {
     voiceOpenRef.current = voiceOpen;
   }, [voiceOpen]);
   useEffect(() => {
-    window.history.replaceState({ personalAssistantTab: "home" }, "");
+    window.history.replaceState({ personalAssistantRoot: true }, "");
+    window.history.pushState({ personalAssistantTab: tabRef.current }, "");
     const handleBack = () => {
       if (voiceOpenRef.current) {
         voiceOpenRef.current = false;
