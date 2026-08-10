@@ -574,7 +574,7 @@ function HomeWeather({
               {(forecast.hourly?.precipitation_probability[index] ?? 0) > 10 && <span className="hourly-rain">비 {forecast.hourly?.precipitation_probability[index] ?? 0}%</span>}
               {(forecast.hourly?.precipitation[index] ?? 0) > 1 && <span>강수 {(forecast.hourly?.precipitation[index] ?? 0).toFixed(1)}mm</span>}
               <span>
-                바람 {Math.round(forecast.hourly?.wind_speed_10m[index] ?? 0)}
+                바람 {Math.round(forecast.hourly?.wind_speed_10m[index] ?? 0)}m/s
               </span>
               <span>
                 습도 {forecast.hourly?.relative_humidity_2m[index] ?? 0}%
@@ -2309,7 +2309,7 @@ function WeatherView({
         {(data.best.hourly?.precipitation_probability[index] ?? 0) > 10 && <span className="hourly-rain">비 {data.best.hourly?.precipitation_probability[index] ?? 0}%</span>}
         {(data.best.hourly?.precipitation[index] ?? 0) > 1 && <span>강수 {(data.best.hourly?.precipitation[index] ?? 0).toFixed(1)}mm</span>}
         <span>
-          바람 {Math.round(data.best.hourly?.wind_speed_10m[index] ?? 0)}
+          바람 {Math.round(data.best.hourly?.wind_speed_10m[index] ?? 0)}m/s
         </span>
         <span>습도 {data.best.hourly?.relative_humidity_2m[index] ?? 0}%</span>
         {air && (() => {
@@ -2693,6 +2693,7 @@ export default function Home() {
     else window.history.replaceState({ personalAssistantTab: nextTab }, "");
     tabRef.current = nextTab;
     setTab(nextTab);
+    window.requestAnimationFrame(() => window.scrollTo(0, 0));
   };
   useEffect(() => {
     const loadSavedData = window.setTimeout(() => {
