@@ -986,24 +986,18 @@ function MemoView({
   const [category, setCategory] = useState<Memo["category"]>("개인");
 
   const openNew = () => {
-    document.documentElement.dataset.myAssistantForm = "open";
-    window.history.pushState({ personalAssistantForm: "memo" }, "");
     setEditing(null);
     setTitle("");
     setContent("");
     setCategory("개인");
     setWriting(true);
-    window.setTimeout(() => document.querySelector(".memo-editor")?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
   };
   const openEdit = (memo: Memo) => {
-    document.documentElement.dataset.myAssistantForm = "open";
-    window.history.pushState({ personalAssistantForm: "memo" }, "");
     setEditing(memo);
     setTitle(memo.title);
     setContent(memo.content);
     setCategory(memo.category);
     setWriting(true);
-    window.setTimeout(() => document.querySelector(".memo-editor")?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
   };
   const saveMemo = () => {
     if (!title.trim() && !content.trim()) return;
@@ -1044,11 +1038,6 @@ function MemoView({
         .includes(search.toLowerCase()),
     )
     .sort((a, b) => Number(b.pinned) - Number(a.pinned));
-  useEffect(() => {
-    const close = () => setWriting(false);
-    document.addEventListener("my-assistant-close-form", close);
-    return () => document.removeEventListener("my-assistant-close-form", close);
-  }, []);
 
   return (
     <>
@@ -1578,8 +1567,6 @@ function CalendarView({
     return occurrence?.startsWith(`${year}-${String(month + 1).padStart(2, "0")}`);
   }).sort((a, b) => (a.repeatYearly ? occurrenceInYear(a, year) ?? "" : a.date).localeCompare(b.repeatYearly ? occurrenceInYear(b, year) ?? "" : b.date) || a.time.localeCompare(b.time));
   const openNewEvent = () => {
-    document.documentElement.dataset.myAssistantForm = "open";
-    window.history.pushState({ personalAssistantForm: "calendar" }, "");
     setEditingId(null);
     setTitle("");
     setDate(selectedDate);
@@ -1591,11 +1578,8 @@ function CalendarView({
     setReminder3Days(true);
     setReminder1Day(true);
     setWriting(true);
-    window.setTimeout(() => document.querySelector(".calendar-editor")?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
   };
   const openEditEvent = (event: CalendarEvent) => {
-    document.documentElement.dataset.myAssistantForm = "open";
-    window.history.pushState({ personalAssistantForm: "calendar" }, "");
     setEditingId(event.id);
     setTitle(event.title);
     setDate(event.date);
@@ -1607,7 +1591,6 @@ function CalendarView({
     setReminder3Days(Boolean(event.reminder3Days));
     setReminder1Day(Boolean(event.reminder1Day));
     setWriting(true);
-    window.setTimeout(() => document.querySelector(".calendar-editor")?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
   };
   const setPeriod = (period: "am" | "pm") => {
     const [hour, minute] = time.split(":").map(Number);
@@ -1793,11 +1776,6 @@ function CalendarView({
       (current) =>
         new Date(current.getFullYear(), current.getMonth() + amount, 1),
     );
-  useEffect(() => {
-    const close = () => setWriting(false);
-    document.addEventListener("my-assistant-close-form", close);
-    return () => document.removeEventListener("my-assistant-close-form", close);
-  }, []);
 
   return (
     <>
@@ -1847,7 +1825,7 @@ function CalendarView({
           {googleStatus && <p className="google-status">{googleStatus}</p>}
         </section>
       )}
-      {!trash && !writing && (
+      {!trash && (
         <section className="month-card">
           <div className="month-title">
             <button onClick={() => changeMonth(-1)}>‹</button>
@@ -2695,11 +2673,6 @@ export default function Home() {
   useEffect(() => {
     window.history.replaceState({ personalAssistantTab: "home" }, "");
     const handleBack = () => {
-      if (document.documentElement.dataset.myAssistantForm === "open") {
-        delete document.documentElement.dataset.myAssistantForm;
-        document.dispatchEvent(new Event("my-assistant-close-form"));
-        return;
-      }
       setVoiceOpen(false);
       setTab("home");
       tabRef.current = "home";
