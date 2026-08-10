@@ -1607,7 +1607,7 @@ h1 {
   z-index: 20;
   inset: 0;
   display: flex;
-  align-items: flex-end;
+  align-items: flex-start;
   padding: 18px;
   background: #14251d70;
   backdrop-filter: blur(3px);
