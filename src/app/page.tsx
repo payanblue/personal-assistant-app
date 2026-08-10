@@ -574,7 +574,7 @@ function HomeWeather({
               <span className="hourly-rain">
                 비 {forecast.hourly?.precipitation_probability[index] ?? 0}%
               </span>
-              <span>강수 {(forecast.hourly?.precipitation[index] ?? 0).toFixed(1)}mm</span>
+              {(forecast.hourly?.precipitation[index] ?? 0) > 1 && <span>강수 {(forecast.hourly?.precipitation[index] ?? 0).toFixed(1)}mm</span>}
               <span>
                 바람 {Math.round(forecast.hourly?.wind_speed_10m[index] ?? 0)}
               </span>
@@ -2311,7 +2311,7 @@ function WeatherView({
         <span className="hourly-rain">
           비 {data.best.hourly?.precipitation_probability[index] ?? 0}%
         </span>
-        <span>강수 {(data.best.hourly?.precipitation[index] ?? 0).toFixed(1)}mm</span>
+        {(data.best.hourly?.precipitation[index] ?? 0) > 1 && <span>강수 {(data.best.hourly?.precipitation[index] ?? 0).toFixed(1)}mm</span>}
         <span>
           바람 {Math.round(data.best.hourly?.wind_speed_10m[index] ?? 0)}
         </span>
@@ -2484,9 +2484,7 @@ function WeatherView({
                       {rainChance}
                       %
                     </strong>
-                    <small>
-                      예상 {rainAmount.toFixed(1)}mm · 모델 {rainVotes}/3 · 일치도 {agreement}
-                    </small>
+                    <small>{rainAmount > 1 ? `예상 ${rainAmount.toFixed(1)}mm · ` : ""}모델 {rainVotes}/3 · 일치도 {agreement}</small>
                   </div>
                 </article>
               );
