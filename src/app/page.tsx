@@ -2677,27 +2677,11 @@ function MoreView({
       </section>
       <h2 className="settings-title">설정</h2>
       <section className="feature-list compact">
-        <button>
-          <span>🔔</span>
-          <div>
-            <strong>알림 설정</strong>
-            <small>일정마다 3일 전·1일 전 메시지 선택</small>
-          </div>
-          <b>›</b>
-        </button>
         <button onClick={() => setAnniversaryOpen((open) => !open)}>
           <span>✦</span>
           <div>
             <strong>기념일 · 생일 관리</strong>
             <small>등록 · 수정 · 삭제</small>
-          </div>
-          <b>›</b>
-        </button>
-        <button>
-          <span>🎙</span>
-          <div>
-            <strong>음성 명령 안내</strong>
-            <small>홈과 일정 화면에서 말로 입력</small>
           </div>
           <b>›</b>
         </button>
