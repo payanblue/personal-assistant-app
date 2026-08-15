@@ -2178,3 +2178,49 @@ h1 {
 .work-line { will-change: transform; }.work-line.dragging { transition: none !important; }
 .weather-header .location-name { color: #1f9c69; font-style: normal; }
 .saved-location { display: inline-flex; align-items: center; border-radius: 20px; background: #d4ded7; overflow: hidden; }.quick-locations .saved-location>button { margin: 0; border-radius: 0; }.quick-locations .remove-saved-location { padding: 6px 7px; background: #bfccc3; color: #48584f; font-size: 12px; line-height: 1; }
+
+
+/* 기념일 설정 카드: 일정 편집기 버튼 색상과 분리해 읽기 쉽게 유지 */
+.anniversary-settings .anniversary-add-button {
+  width: 100%;
+  padding: 11px;
+  border: 1px dashed #8aac94;
+  border-radius: 12px;
+  background: #f8fbf8;
+  color: #1f5a38;
+}
+.anniversary-settings .anniversary-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.anniversary-settings .anniversary-card > button:first-child {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-width: 0;
+  padding: 13px;
+  border: 1px solid #c2d7c8;
+  border-radius: 15px;
+  background: #f7fbf8;
+  color: #1d3527;
+  text-align: left;
+}
+.anniversary-settings .anniversary-card > button:first-child strong {
+  color: #173c27;
+  font-size: 14px;
+}
+.anniversary-settings .anniversary-card > button:first-child small {
+  color: #52685a;
+  font-size: 11px;
+}
+.anniversary-settings .anniversary-card > .danger {
+  flex: 0 0 auto;
+  width: auto;
+  padding: 9px 10px;
+  border: 1px solid #e5bbb5;
+  border-radius: 10px;
+  background: #fff4f2;
+  color: #a13930;
+}
