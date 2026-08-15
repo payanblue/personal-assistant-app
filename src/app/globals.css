@@ -2224,3 +2224,86 @@ h1 {
   background: #fff4f2;
   color: #a13930;
 }
+
+
+/* 기념일 관리 모바일 폭 고정 */
+.anniversary-settings {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+.calendar-editor.anniversary-settings > .section-title {
+  display: flex;
+  grid-template-columns: none;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-width: 0;
+  gap: 10px;
+}
+.anniversary-settings > .section-title h2 {
+  min-width: 0;
+  margin: 0;
+  font-size: clamp(18px, 5.2vw, 24px);
+  overflow-wrap: anywhere;
+}
+.anniversary-settings > .section-title .cancel {
+  flex: 0 0 auto;
+  width: auto;
+  min-width: 58px;
+  max-width: 76px;
+  padding-inline: 12px;
+}
+.anniversary-settings .anniversary-add-button {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+.calendar-editor.anniversary-settings > .anniversary-cards {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  width: 100%;
+  min-width: 0;
+  gap: 10px;
+}
+.anniversary-settings .anniversary-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  gap: 8px;
+  box-sizing: border-box;
+}
+.anniversary-settings .anniversary-card > button:first-child {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+.anniversary-settings .anniversary-card > button:first-child div {
+  min-width: 0;
+}
+.anniversary-settings .anniversary-card > button:first-child strong,
+.anniversary-settings .anniversary-card > button:first-child small {
+  overflow-wrap: anywhere;
+}
+.anniversary-settings .anniversary-card > .danger {
+  align-self: center;
+  width: auto;
+  min-width: 52px;
+  max-width: 64px;
+  box-sizing: border-box;
+}
+@media (max-width: 380px) {
+  .anniversary-settings .anniversary-card {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .anniversary-settings .anniversary-card > .danger {
+    justify-self: end;
+  }
+}
