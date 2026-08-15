@@ -1542,7 +1542,6 @@ function CalendarView({
   const [googleToken, setGoogleToken] = useState("");
   const [googleStatus, setGoogleStatus] = useState("");
   const [syncingId, setSyncingId] = useState<number | null>(null);
-  const [anniversariesOpen, setAnniversariesOpen] = useState(false);
   const googleClientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
   const year = visibleMonth.getFullYear();
   const month = visibleMonth.getMonth();
@@ -1560,7 +1559,6 @@ function CalendarView({
         Number(Boolean(b.allDay)) - Number(Boolean(a.allDay)) ||
         a.time.localeCompare(b.time),
     );
-  const anniversaries = events.filter((event) => !event.deleted && event.repeatYearly).sort((a, b) => (nextOccurrence(a) ?? "9999-12-31").localeCompare(nextOccurrence(b) ?? "9999-12-31"));
   const monthEvents = events.filter(event => {
     if (event.deleted) return false;
     const occurrence = event.repeatYearly ? occurrenceInYear(event, year) : event.date;
@@ -2108,7 +2106,6 @@ function CalendarView({
           </div>
         )}
       </section>
-      {!trash && <section className="section-block anniversary-list"><button className="anniversary-toggle" onClick={() => setAnniversariesOpen(value => !value)}><span>✦</span><div><strong>기념일 · 생일</strong><small>매년 반복 일정 {anniversaries.length}개</small></div><b>{anniversariesOpen ? "⌃" : "⌄"}</b></button>{anniversariesOpen && (anniversaries.length ? <div className="anniversary-cards">{anniversaries.map(event => <button className="anniversary-card" key={event.id} onClick={() => openEditEvent(event)}><span className="anniversary-icon">{event.calendarType === "lunar" ? "☾" : "✦"}</span><div><strong>{event.title}</strong><small>{nextOccurrence(event)?.replaceAll("-", ".")} · 매년 {event.calendarType === "lunar" ? "음력" : "양력"}</small></div><b>›</b></button>)}</div> : <p>매년 반복으로 등록한 생일과 기념일이 없어요.</p>)}</section>}
       {!trash && !writing && (
         <button className="floating-button" onClick={openNewEvent}>
           ＋ 새 일정
@@ -2562,13 +2559,74 @@ function MoreView({
   exportData,
   exportText,
   importData,
+  events,
+  setEvents,
 }: {
   go: (tab: Tab) => void;
   exportData: () => void;
   exportText: () => void;
   importData: (file: File) => void;
+  events: CalendarEvent[];
+  setEvents: React.Dispatch<React.SetStateAction<CalendarEvent[]>>;
 }) {
   const fileInput = useRef<HTMLInputElement | null>(null);
+  const [anniversaryOpen, setAnniversaryOpen] = useState(false);
+  const [anniversaryEditor, setAnniversaryEditor] = useState(false);
+  const [editingAnniversaryId, setEditingAnniversaryId] = useState<number | null>(null);
+  const [anniversaryTitle, setAnniversaryTitle] = useState("");
+  const [anniversaryDate, setAnniversaryDate] = useState(localDateKey());
+  const [anniversaryType, setAnniversaryType] = useState<"solar" | "lunar">("solar");
+  const [anniversaryContent, setAnniversaryContent] = useState("");
+  const anniversaries = events
+    .filter((event) => !event.deleted && event.repeatYearly)
+    .sort((a, b) =>
+      (nextOccurrence(a) ?? "9999-12-31").localeCompare(
+        nextOccurrence(b) ?? "9999-12-31",
+      ),
+    );
+  const openNewAnniversary = () => {
+    setEditingAnniversaryId(null);
+    setAnniversaryTitle("");
+    setAnniversaryDate(localDateKey());
+    setAnniversaryType("solar");
+    setAnniversaryContent("");
+    setAnniversaryEditor(true);
+  };
+  const openEditAnniversary = (event: CalendarEvent) => {
+    setEditingAnniversaryId(event.id);
+    setAnniversaryTitle(event.title);
+    setAnniversaryDate(event.date);
+    setAnniversaryType(event.calendarType ?? "solar");
+    setAnniversaryContent(event.content ?? "");
+    setAnniversaryEditor(true);
+  };
+  const saveAnniversary = () => {
+    if (!anniversaryTitle.trim()) return;
+    const value = {
+      title: anniversaryTitle.trim(),
+      date: anniversaryDate,
+      time: "00:00",
+      allDay: true,
+      content: anniversaryContent.trim(),
+      repeatYearly: true,
+      calendarType: anniversaryType,
+      reminder3Days: true,
+      reminder1Day: true,
+    };
+    if (editingAnniversaryId !== null)
+      setEvents((current) =>
+        current.map((event) =>
+          event.id === editingAnniversaryId ? { ...event, ...value } : event,
+        ),
+      );
+    else
+      setEvents((current) => [
+        ...current,
+        { id: Date.now(), ...value, deleted: false },
+      ]);
+    setAnniversaryEditor(false);
+    setEditingAnniversaryId(null);
+  };
   return (
     <>
       <PageHeader title="더보기" />
@@ -2627,6 +2685,14 @@ function MoreView({
           </div>
           <b>›</b>
         </button>
+        <button onClick={() => setAnniversaryOpen((open) => !open)}>
+          <span>✦</span>
+          <div>
+            <strong>기념일 · 생일 관리</strong>
+            <small>등록 · 수정 · 삭제</small>
+          </div>
+          <b>›</b>
+        </button>
         <button>
           <span>🎙</span>
           <div>
@@ -2636,6 +2702,109 @@ function MoreView({
           <b>›</b>
         </button>
       </section>
+      {anniversaryOpen && (
+        <section className="calendar-editor anniversary-settings">
+          <div className="section-title">
+            <h2>기념일 · 생일 관리</h2>
+            <button className="cancel" onClick={() => setAnniversaryOpen(false)}>
+              닫기
+            </button>
+          </div>
+          {!anniversaryEditor ? (
+            <>
+              <button className="anniversary-add-button" onClick={openNewAnniversary}>
+                ＋ 기념일 등록
+              </button>
+              {anniversaries.length ? (
+                <div className="anniversary-cards">
+                  {anniversaries.map((event) => (
+                    <article className="anniversary-card" key={event.id}>
+                      <button onClick={() => openEditAnniversary(event)}>
+                        <span className="anniversary-icon">
+                          {event.calendarType === "lunar" ? "☾" : "✦"}
+                        </span>
+                        <div>
+                          <strong>{event.title}</strong>
+                          <small>
+                            {nextOccurrence(event)?.replaceAll("-", ".")} · 매년{" "}
+                            {event.calendarType === "lunar" ? "음력" : "양력"}
+                          </small>
+                        </div>
+                      </button>
+                      <button
+                        className="danger"
+                        onClick={() => {
+                          if (window.confirm("이 기념일을 삭제할까요? 휴지통에서 복구할 수 있어요."))
+                            setEvents((current) =>
+                              current.map((item) =>
+                                item.id === event.id ? { ...item, deleted: true } : item,
+                              ),
+                            );
+                        }}
+                      >
+                        삭제
+                      </button>
+                    </article>
+                  ))}
+                </div>
+              ) : (
+                <p>등록한 기념일이나 생일이 없어요.</p>
+              )}
+            </>
+          ) : (
+            <>
+              <label>
+                이름
+                <input
+                  value={anniversaryTitle}
+                  onChange={(event) => setAnniversaryTitle(event.target.value)}
+                  placeholder="예: 어머니 생신"
+                  autoFocus
+                />
+              </label>
+              <label>
+                {anniversaryType === "lunar" ? "음력 날짜" : "날짜"}
+                <input
+                  type="date"
+                  value={anniversaryDate}
+                  onChange={(event) => setAnniversaryDate(event.target.value)}
+                />
+              </label>
+              <div className="calendar-type">
+                <button
+                  className={anniversaryType === "solar" ? "selected" : ""}
+                  onClick={() => setAnniversaryType("solar")}
+                >
+                  양력
+                </button>
+                <button
+                  className={anniversaryType === "lunar" ? "selected" : ""}
+                  onClick={() => setAnniversaryType("lunar")}
+                >
+                  음력
+                </button>
+              </div>
+              <label>
+                메모
+                <textarea
+                  value={anniversaryContent}
+                  onChange={(event) => setAnniversaryContent(event.target.value)}
+                  placeholder="선물, 장소 등 메모"
+                  rows={3}
+                />
+              </label>
+              <footer>
+                <button className="cancel" onClick={() => setAnniversaryEditor(false)}>
+                  취소
+                </button>
+                <button onClick={saveAnniversary}>
+                  {editingAnniversaryId === null ? "등록" : "수정 저장"}
+                </button>
+              </footer>
+            </>
+          )}
+        </section>
+      )}
       <div className="coming-note">
         <strong>데이터는 현재 이 브라우저에 저장돼요</strong>
         <p>
@@ -2949,6 +3118,8 @@ export default function Home() {
         exportData={exportData}
         exportText={exportText}
         importData={importData}
+        events={events}
+        setEvents={setEvents}
       />
     ),
     weather: (
