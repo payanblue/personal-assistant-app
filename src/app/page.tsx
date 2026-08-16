@@ -2577,7 +2577,7 @@ function WeatherView({
           `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(keyword)}&count=8&language=ko&format=json`,
         ),
         fetch(
-          `https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=8&accept-language=ko&q=${encodeURIComponent(`${keyword} 대한민국`)}`,
+          `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/api/place-search?q=${encodeURIComponent(`${keyword} 대한민국`)}&limit=8`,
         ),
       ]);
       const weatherValue = weatherResponse.ok
@@ -2657,7 +2657,7 @@ function WeatherView({
         const latitude = position.coords.latitude;
         const longitude = position.coords.longitude;
         try {
-          const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&addressdetails=1&accept-language=ko&lat=${latitude}&lon=${longitude}`);
+          const response = await fetch(`${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/api/place-search?lat=${latitude}&lon=${longitude}`);
           const place = await response.json() as PlaceSearchResult;
           const address = place.address ?? {};
           const inSeonganDong = latitude > 35.56 && latitude < 35.59 && longitude > 129.30 && longitude < 129.35;
@@ -3206,7 +3206,7 @@ function RestaurantMapView({
     try {
       const requestPlaces = async (keyword: string) => {
         const response = await fetch(
-          `https://nominatim.openstreetmap.org/search?format=jsonv2&countrycodes=kr&limit=8&accept-language=ko&q=${encodeURIComponent(keyword.trim())}`,
+          `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/api/place-search?q=${encodeURIComponent(keyword.trim())}&limit=8`,
         );
         if (!response.ok) throw new Error("search failed");
         return (await response.json()) as PlaceSearchResult[];
@@ -3273,7 +3273,7 @@ function RestaurantMapView({
     setOcrStatus("지도에서 위치를 지정했어요. 상호명과 음식 종류를 확인한 뒤 저장하세요.");
     if (pickedAddress !== "지도에서 직접 지정한 위치") return;
     void fetch(
-      `https://nominatim.openstreetmap.org/reverse?format=jsonv2&addressdetails=1&accept-language=ko&lat=${pickedLatitude}&lon=${pickedLongitude}`,
+      `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/api/place-search?lat=${pickedLatitude}&lon=${pickedLongitude}`,
     )
       .then((response) => response.ok ? response.json() : null)
       .then((place: { display_name?: string } | null) => {
@@ -3309,7 +3309,7 @@ function RestaurantMapView({
         ? `${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()},${bounds.getSouth()}`
         : "";
       const response = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=jsonv2&countrycodes=kr&limit=20&accept-language=ko&bounded=1&viewbox=${encodeURIComponent(viewbox)}&q=${encodeURIComponent(keyword)}`,
+        `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/api/place-search?q=${encodeURIComponent(keyword)}&limit=20&bounded=1&viewbox=${encodeURIComponent(viewbox)}`,
       );
       if (!response.ok) throw new Error("map search failed");
       const places = (await response.json()) as PlaceSearchResult[];
@@ -3556,6 +3556,7 @@ function RestaurantMapView({
             <label>주소 또는 위치 검색<div className="restaurant-search-row"><input value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void searchPlace(); }} placeholder="예: 옥현로46번길 9-12" /><button onClick={() => void searchPlace()} disabled={searching}>{searching ? "검색 중" : "검색"}</button></div></label>
             {searchMessage && <p className="restaurant-search-message">{searchMessage}</p>}
             {results.length > 0 && <div className="restaurant-search-results">{results.map((result) => <button onClick={() => chooseResult(result)} key={`${result.lat}-${result.lon}`}><strong>{result.display_name.split(",")[0]}</strong><small>{result.display_name}</small></button>)}</div>}
+            {results.length === 0 && query.trim() && <button className="restaurant-map-pick" onClick={() => openNaverMap(query)}>네이버지도에서 이 이름 검색</button>}
             {results.length === 0 && query.trim() && <button className="restaurant-map-pick" onClick={pickPlaceOnMap}>📍 검색이 안 되면 지도에서 위치 직접 선택</button>}
             {latitude !== null && longitude !== null && <div className="chosen-place-label"><strong>선택한 위치</strong><small>{address}</small></div>}
             <label>음식 종류<select value={category} onChange={(event) => setCategory(event.target.value as Exclude<RestaurantCategory, "전체">)}>{restaurantCategories.filter((item) => item.id !== "전체").map((item) => <option key={item.id} value={item.id}>{item.icon} {item.id}</option>)}</select></label>
