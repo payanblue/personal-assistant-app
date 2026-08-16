@@ -34,6 +34,7 @@ type GoogleTokenClient = {
 
 type LeafletMap = {
   setView: (center: [number, number], zoom: number) => LeafletMap;
+  getBounds: () => { getWest: () => number; getSouth: () => number; getEast: () => number; getNorth: () => number };
   on: (event: string, handler: (event: { latlng: { lat: number; lng: number } }) => void) => LeafletMap;
   off: (event: string, handler: (event: { latlng: { lat: number; lng: number } }) => void) => LeafletMap;
   invalidateSize: () => LeafletMap;
@@ -2954,8 +2955,20 @@ type RestaurantImportItem = {
   id: number;
   fileName: string;
   name: string;
+  address?: string;
   status: "processing" | "ready" | "needs-review";
 };
+
+function likelyRestaurantAddress(text: string) {
+  const matches = text
+    .split(/\n+/)
+    .flatMap((line) => {
+      const cleaned = line.replace(/[^0-9가-힣·\- ]/g, " ").replace(/\s+/g, " ").trim();
+      return [...cleaned.matchAll(/([가-힣0-9·]+(?:로|길)\s*\d+(?:-\d+)?)/g)].map((match) => match[1].trim());
+    })
+    .filter((value) => value.length >= 5);
+  return [...new Set(matches)].sort((a, b) => a.length - b.length)[0] ?? "";
+}
 
 function likelyRestaurantName(text: string) {
   const foodWords = /(식당|식탁|국밥|짬뽕|버거|마루|카페|커피|횟집|고기|냉면|치킨|분식|초밥|수제|한우|국수|우동|돈까스|돈가스|갈비|곱창|족발|보쌈|김밥|떡볶이|제과|베이커리)/;
@@ -3102,18 +3115,28 @@ function RestaurantMapView({
       { enableHighAccuracy: true, timeout: 8000 },
     );
   };
-  const searchPlace = async (value = query) => {
+  const searchPlace = async (value = query, fallbackAddress = "") => {
     if (!value.trim()) return;
     setSearching(true);
     setSearchMessage("장소를 검색하고 있어요…");
     try {
-      const response = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=jsonv2&countrycodes=kr&limit=8&accept-language=ko&q=${encodeURIComponent(value.trim())}`,
-      );
-      if (!response.ok) throw new Error("search failed");
-      const places = (await response.json()) as PlaceSearchResult[];
+      const requestPlaces = async (keyword: string) => {
+        const response = await fetch(
+          `https://nominatim.openstreetmap.org/search?format=jsonv2&countrycodes=kr&limit=8&accept-language=ko&q=${encodeURIComponent(keyword.trim())}`,
+        );
+        if (!response.ok) throw new Error("search failed");
+        return (await response.json()) as PlaceSearchResult[];
+      };
+      let places = await requestPlaces(value);
+      let usedAddressFallback = false;
+      if (!places.length && fallbackAddress.trim() && fallbackAddress.trim() !== value.trim()) {
+        places = await requestPlaces(fallbackAddress);
+        usedAddressFallback = places.length > 0;
+      }
       setResults(places);
-      if (places.length) setSearchMessage(`${places.length}개의 검색 결과가 있어요. 정확한 장소를 선택하세요.`);
+      if (places.length) setSearchMessage(usedAddressFallback
+        ? `상호명은 지도에 없어 사진 속 주소(${fallbackAddress})로 찾았어요. 정확한 위치를 선택하세요.`
+        : `${places.length}개의 검색 결과가 있어요. 정확한 장소를 선택하세요.`);
       else {
         setSearchMessage("검색 결과가 없어요. 주소를 입력하거나 지도에서 직접 찾아보세요.");
         setOcrStatus("검색 결과가 없어요. 상호명 뒤에 동네나 주소를 함께 적어 다시 검색해 주세요.");
@@ -3183,15 +3206,19 @@ function RestaurantMapView({
     setMapSearching(true);
     setMapSearchMessage("지도에서 검색하고 있어요…");
     try {
+      const bounds = mapRef.current?.getBounds();
+      const viewbox = bounds
+        ? `${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()},${bounds.getSouth()}`
+        : "";
       const response = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=jsonv2&countrycodes=kr&limit=8&accept-language=ko&q=${encodeURIComponent(keyword)}`,
+        `https://nominatim.openstreetmap.org/search?format=jsonv2&countrycodes=kr&limit=20&accept-language=ko&bounded=1&viewbox=${encodeURIComponent(viewbox)}&q=${encodeURIComponent(keyword)}`,
       );
       if (!response.ok) throw new Error("map search failed");
       const places = (await response.json()) as PlaceSearchResult[];
       setMapSearchResults(places);
       setMapSearchMessage(places.length
-        ? `${places.length}개의 결과가 있어요. 원하는 장소를 누르세요.`
-        : "검색 결과가 없어요. 도로명 주소나 동네를 함께 입력해 보세요.");
+        ? `현재 지도 화면 안에서 ${places.length}개의 결과를 찾았어요.`
+        : "현재 지도 화면 안에는 결과가 없어요. 지도를 해당 지역으로 옮긴 뒤 다시 검색하거나 도로명 주소를 입력하세요.");
       if (places[0]) mapRef.current?.setView([Number(places[0].lat), Number(places[0].lon)], 16);
     } catch {
       setMapSearchMessage("검색 연결에 실패했어요. 잠시 후 다시 시도해 주세요.");
@@ -3268,9 +3295,11 @@ function RestaurantMapView({
                     setOcrStatus(`${index + 1}/${files.length}장 인식 중 · ${Math.round((message.progress ?? 0) * 100)}%`);
                 },
               });
-          const candidate = likelyRestaurantName(result?.data.text ?? "");
+          const recognizedText = result?.data.text ?? "";
+          const candidate = likelyRestaurantName(recognizedText);
+          const addressCandidate = likelyRestaurantAddress(recognizedText);
           setBulkItems((current) => current.map((entry) => entry.id === item.id
-            ? { ...entry, name: candidate, status: candidate ? "ready" : "needs-review" }
+            ? { ...entry, name: candidate, address: addressCandidate, status: candidate ? "ready" : "needs-review" }
             : entry));
         } catch {
           setBulkItems((current) => current.map((entry) => entry.id === item.id
@@ -3294,7 +3323,7 @@ function RestaurantMapView({
     setQuery(item.name.trim());
     setName(item.name.trim());
     setOcrStatus("검색 결과에서 정확한 장소를 선택한 뒤 저장하세요.");
-    void searchPlace(item.name.trim());
+    void searchPlace(item.name.trim(), item.address ?? "");
   };
 
   useEffect(() => {
@@ -3377,7 +3406,7 @@ function RestaurantMapView({
                         placeholder={item.status === "processing" ? "상호명 인식 중…" : "상호명을 직접 입력"}
                         disabled={item.status === "processing"}
                       />
-                      <small>{item.fileName}{item.status === "needs-review" ? " · 이름 확인 필요" : ""}</small>
+                      <small>{item.fileName}{item.address ? ` · ${item.address}` : ""}{item.status === "needs-review" ? " · 이름 확인 필요" : ""}</small>
                     </div>
                     <button onClick={() => checkBulkItem(item)} disabled={item.status === "processing" || !item.name.trim()}>장소 확인</button>
                     <button className="queue-remove" aria-label="목록에서 제거" onClick={() => setBulkItems((current) => current.filter((entry) => entry.id !== item.id))}>×</button>
