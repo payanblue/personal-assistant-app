@@ -477,6 +477,98 @@ function lunarToSolar(year: number, month: number, day: number) {
   return `${solar.year}-${String(solar.month).padStart(2, "0")}-${String(solar.day).padStart(2, "0")}`;
 }
 
+function addDays(dateKey: string, amount: number) {
+  const date = new Date(`${dateKey}T12:00:00`);
+  date.setDate(date.getDate() + amount);
+  return localDateKey(date);
+}
+
+const holidayCache = new Map<number, Map<string, string>>();
+
+function koreanHolidays(year: number) {
+  const cached = holidayCache.get(year);
+  if (cached) return cached;
+
+  const base = new Map<string, string[]>();
+  const substitutes = new Map<string, string>();
+  const add = (date: string | null, name: string) => {
+    if (!date) return;
+    base.set(date, [...(base.get(date) ?? []), name]);
+  };
+
+  add(`${year}-01-01`, "신정");
+  add(`${year}-03-01`, "삼일절");
+  if (year >= 2026) add(`${year}-05-01`, "근로자의 날");
+  add(`${year}-05-05`, "어린이날");
+  add(`${year}-06-06`, "현충일");
+  if (year >= 2026) add(`${year}-07-17`, "제헌절");
+  add(`${year}-08-15`, "광복절");
+  add(`${year}-10-03`, "개천절");
+  add(`${year}-10-09`, "한글날");
+  add(`${year}-12-25`, "성탄절");
+
+  const seollal = lunarToSolar(year, 1, 1);
+  const buddha = lunarToSolar(year, 4, 8);
+  const chuseok = lunarToSolar(year, 8, 15);
+  if (seollal) {
+    add(addDays(seollal, -1), "설날 연휴");
+    add(seollal, "설날");
+    add(addDays(seollal, 1), "설날 연휴");
+  }
+  add(buddha, "부처님오신날");
+  if (chuseok) {
+    add(addDays(chuseok, -1), "추석 연휴");
+    add(chuseok, "추석");
+    add(addDays(chuseok, 1), "추석 연휴");
+  }
+
+  const isWeekend = (dateKey: string) => {
+    const day = new Date(`${dateKey}T12:00:00`).getDay();
+    return day === 0 || day === 6;
+  };
+  const addSubstitute = (after: string, name: string) => {
+    let candidate = addDays(after, 1);
+    while (base.has(candidate) || substitutes.has(candidate) || isWeekend(candidate)) {
+      candidate = addDays(candidate, 1);
+    }
+    substitutes.set(candidate, `${name} 대체공휴일`);
+  };
+
+  const substituteEligible = new Set([
+    "삼일절", "광복절", "개천절", "한글날", "부처님오신날", "어린이날", "성탄절",
+    ...(year >= 2026 ? ["근로자의 날", "제헌절"] : []),
+  ]);
+  for (const [date, names] of base) {
+    for (const name of names) {
+      if (substituteEligible.has(name) && (isWeekend(date) || names.length > 1)) {
+        addSubstitute(date, name);
+      }
+    }
+  }
+  for (const [center, name] of [[seollal, "설날"], [chuseok, "추석"]] as const) {
+    if (!center) continue;
+    const dates = [addDays(center, -1), center, addDays(center, 1)];
+    const needsSubstitute = dates.some((date) =>
+      new Date(`${date}T12:00:00`).getDay() === 0 || (base.get(date)?.length ?? 0) > 1,
+    );
+    if (needsSubstitute) addSubstitute(dates[2], name);
+  }
+
+  const holidays = new Map<string, string>();
+  for (const [date, names] of base) holidays.set(date, names.join(" · "));
+  for (const [date, name] of substitutes) holidays.set(date, name);
+  holidayCache.set(year, holidays);
+  return holidays;
+}
+
+function holidayName(dateKey: string) {
+  return koreanHolidays(Number(dateKey.slice(0, 4))).get(dateKey) ?? "";
+}
+
+function isSunday(dateKey: string) {
+  return new Date(`${dateKey}T12:00:00`).getDay() === 0;
+}
+
 function eventOccursOn(event: CalendarEvent, solarDate: string) {
   if (!event.repeatYearly) return event.date === solarDate;
   if (event.calendarType === "lunar") {
@@ -923,12 +1015,14 @@ function HomeCalendar({
           const hasEvent = events.some(
             (event) => calendarEventIsVisible(event) && eventOccursOn(event, dateKey),
           );
+          const holiday = holidayName(dateKey);
           return (
             <button
-              className={`${dateKey === today ? "today" : ""} ${hasEvent ? "has-event" : ""}`}
+              className={`${dateKey === today ? "today" : ""} ${hasEvent ? "has-event" : ""} ${holiday || isSunday(dateKey) ? "holiday" : ""}`}
               onClick={openCalendar}
               key={dateKey}
-              aria-label={`${month + 1}월 ${day}일${hasEvent ? ", 일정 있음" : ""}`}
+              title={holiday || undefined}
+              aria-label={`${month + 1}월 ${day}일${holiday ? `, ${holiday}` : ""}${hasEvent ? ", 일정 있음" : ""}`}
             >
               {day}
             </button>
@@ -2080,14 +2174,19 @@ function CalendarView({
               );
               const lunar = solarToLunar(key);
               const showLunar = day === 1 || day % 5 === 0;
+              const holiday = holidayName(key);
               return (
                 <button
-                  className={`${key === selectedDate ? "today" : ""} ${hasEvent ? "has-event" : ""}`}
+                  className={`${key === selectedDate ? "today" : ""} ${hasEvent ? "has-event" : ""} ${holiday || isSunday(key) ? "holiday" : ""}`}
                   onClick={() => setSelectedDate(key)}
                   key={key}
+                  title={holiday || undefined}
+                  aria-label={`${month + 1}월 ${day}일${holiday ? `, ${holiday}` : ""}${hasEvent ? ", 일정 있음" : ""}`}
                 >
                   <span>{day}</span>
-                  {showLunar && lunar && (
+                  {holiday ? (
+                    <small className="holiday-name">{holiday}</small>
+                  ) : showLunar && lunar && (
                     <small>
                       음 {lunar.month}.{lunar.day}
                     </small>
