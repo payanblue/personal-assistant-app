@@ -331,32 +331,50 @@ type SharedRestaurantImage = {
   lastModified: number;
 };
 
-function takeSharedRestaurantImages(): Promise<File[]> {
+type SharedRestaurantPlace = {
+  title: string;
+  text: string;
+  url: string;
+};
+
+function takeSharedRestaurantContent(): Promise<{ files: File[]; place: SharedRestaurantPlace | null }> {
   return new Promise((resolve, reject) => {
-    const request = window.indexedDB.open("personal-assistant-share-target", 1);
+    const request = window.indexedDB.open("personal-assistant-share-target", 2);
     request.onupgradeneeded = () => {
       const database = request.result;
       if (!database.objectStoreNames.contains("restaurant-images"))
         database.createObjectStore("restaurant-images", { keyPath: "id", autoIncrement: true });
+      if (!database.objectStoreNames.contains("restaurant-places"))
+        database.createObjectStore("restaurant-places", { keyPath: "id", autoIncrement: true });
     };
     request.onerror = () => reject(request.error);
     request.onsuccess = () => {
       const database = request.result;
-      const transaction = database.transaction("restaurant-images", "readwrite");
-      const store = transaction.objectStore("restaurant-images");
-      const getRequest = store.getAll();
+      const transaction = database.transaction(["restaurant-images", "restaurant-places"], "readwrite");
+      const imageStore = transaction.objectStore("restaurant-images");
+      const placeStore = transaction.objectStore("restaurant-places");
+      const getRequest = imageStore.getAll();
+      const getPlaceRequest = placeStore.getAll();
       let records: SharedRestaurantImage[] = [];
+      let places: SharedRestaurantPlace[] = [];
       getRequest.onsuccess = () => {
         records = getRequest.result as SharedRestaurantImage[];
-        store.clear();
+        imageStore.clear();
+      };
+      getPlaceRequest.onsuccess = () => {
+        places = getPlaceRequest.result as SharedRestaurantPlace[];
+        placeStore.clear();
       };
       transaction.oncomplete = () => {
         database.close();
-        resolve(records.map((record, index) => new File(
-          [record.blob],
-          record.name || `맛집-공유-${index + 1}.jpg`,
-          { type: record.type || record.blob.type || "image/jpeg", lastModified: record.lastModified || Date.now() },
-        )));
+        resolve({
+          files: records.map((record, index) => new File(
+            [record.blob],
+            record.name || `맛집-공유-${index + 1}.jpg`,
+            { type: record.type || record.blob.type || "image/jpeg", lastModified: record.lastModified || Date.now() },
+          )),
+          place: places.at(-1) ?? null,
+        });
       };
       transaction.onerror = () => {
         database.close();
@@ -2970,6 +2988,29 @@ function likelyRestaurantAddress(text: string) {
   return [...new Set(matches)].sort((a, b) => a.length - b.length)[0] ?? "";
 }
 
+function parseSharedRestaurantPlace(place: SharedRestaurantPlace) {
+  const combined = [place.title, place.text].filter(Boolean).join("\n");
+  const url = (place.url || combined.match(/https?:\/\/\S+/)?.[0] || "").replace(/[),.]+$/, "");
+  const lines = combined
+    .split(/\n+/)
+    .map((line) => line
+      .replace(/https?:\/\/\S+/g, "")
+      .replace(/^\s*(장소명|상호명|주소)\s*[:：]\s*/i, "")
+      .replace(/\s*[:|\-]?\s*(네이버\s*지도|네이버맵|카카오맵|KakaoMap)\s*$/i, "")
+      .replace(/\s+/g, " ")
+      .trim())
+    .filter(Boolean);
+  const addressLine = lines.find((line) => /[가-힣0-9·]+(?:로|길)\s*\d+(?:-\d+)?/.test(line)) ?? "";
+  const name = lines.find((line) =>
+    line.length >= 2 &&
+    line.length <= 50 &&
+    !/^(네이버\s*지도|네이버맵|카카오맵|KakaoMap|장소 공유)$/i.test(line) &&
+    line !== addressLine &&
+    !/^(도로명|지번|주소)\s*/.test(line)
+  ) ?? "";
+  return { name, address: addressLine || likelyRestaurantAddress(combined), url };
+}
+
 function likelyRestaurantName(text: string) {
   const foodWords = /(식당|식탁|국밥|짬뽕|버거|마루|카페|커피|횟집|고기|냉면|치킨|분식|초밥|수제|한우|국수|우동|돈까스|돈가스|갈비|곱창|족발|보쌈|김밥|떡볶이|제과|베이커리)/;
   const ignored = /(도로명|지번|리뷰|영업|복사|km|지도|검색|SKT|LTE|광역시|남구|중구|진구)/i;
@@ -3003,12 +3044,16 @@ function RestaurantMapView({
   restaurants,
   setRestaurants,
   sharedFiles,
+  sharedPlace,
   clearSharedFiles,
+  clearSharedPlace,
 }: {
   restaurants: Restaurant[];
   setRestaurants: React.Dispatch<React.SetStateAction<Restaurant[]>>;
   sharedFiles: File[];
+  sharedPlace: SharedRestaurantPlace | null;
   clearSharedFiles: () => void;
+  clearSharedPlace: () => void;
 }) {
   const mapElement = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<LeafletMap | null>(null);
@@ -3149,8 +3194,9 @@ function RestaurantMapView({
   };
   const chooseResult = (result: PlaceSearchResult) => {
     const resultName = result.display_name.split(",")[0].trim();
-    setName(resultName || query.trim());
-    setQuery(resultName || query.trim());
+    const chosenName = name.trim() || resultName || query.trim();
+    setName(chosenName);
+    setQuery(chosenName);
     setAddress(result.display_name);
     setLatitude(Number(result.lat));
     setLongitude(Number(result.lon));
@@ -3335,6 +3381,24 @@ function RestaurantMapView({
     void readScreenshots(sharedFiles).finally(clearSharedFiles);
   }, [sharedFiles, clearSharedFiles, readScreenshots]);
 
+  useEffect(() => {
+    if (!sharedPlace) return;
+    const parsed = parseSharedRestaurantPlace(sharedPlace);
+    resetFields();
+    setActiveBulkId(null);
+    setEditorOpen(true);
+    setName(parsed.name);
+    setQuery(parsed.name || parsed.address);
+    setAddress(parsed.address);
+    setMemo(parsed.url ? `지도 공유 링크: ${parsed.url}` : "");
+    setOcrStatus(parsed.name
+      ? "지도에서 공유한 장소예요. 상호명과 주소를 확인하고 위치를 선택해 주세요."
+      : "공유된 장소 이름을 확인하고 위치를 선택해 주세요.");
+    if (parsed.address) void searchPlace(parsed.address);
+    else if (parsed.name) void searchPlace(parsed.name);
+    clearSharedPlace();
+  }, [sharedPlace, clearSharedPlace]);
+
   return (
     <>
       <PageHeader title="맛집 지도" action="＋" onAction={openNew} />
@@ -3389,8 +3453,8 @@ function RestaurantMapView({
               <input ref={fileInput} type="file" accept="image/*" multiple hidden onChange={(event) => { const files = Array.from(event.target.files ?? []); if (files.length) void readScreenshots(files); event.target.value = ""; }} />
             </div>
             <p className="share-target-guide">
-              앨범별 선택은 삼성 갤러리의 맛집 앨범에서 사진을 여러 장 고른 뒤
-              <strong> 공유 → 나의 비서</strong>를 누르면 바로 이 보관함으로 들어와요.
+              네이버지도·카카오맵에서 장소를 연 뒤 <strong>공유 → 나의 비서</strong>를
+              누르면 상호명·주소·링크를 가져와요. 갤러리 사진 여러 장도 같은 방법으로 가져올 수 있어요.
             </p>
             {ocrStatus && <p className="ocr-status">{ocrStatus}</p>}
             {bulkItems.length > 0 && (
@@ -3787,6 +3851,7 @@ export default function Home() {
   const [chargers, setChargers] = useState<ChargerFavorite[]>(defaultChargers);
   const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
   const [sharedRestaurantFiles, setSharedRestaurantFiles] = useState<File[]>([]);
+  const [sharedRestaurantPlace, setSharedRestaurantPlace] = useState<SharedRestaurantPlace | null>(null);
   const [storageReady, setStorageReady] = useState(false);
   useEffect(() => {
     tabRef.current = tab;
@@ -3821,23 +3886,24 @@ export default function Home() {
     const cleanUrl = `${window.location.pathname}${window.location.hash}`;
     window.history.replaceState({ personalAssistantRoot: true }, "", cleanUrl);
     if (shareTarget === "error") {
-      window.alert("공유한 사진을 가져오지 못했어요. 갤러리에서 다시 공유해 주세요.");
+      window.alert("공유한 사진이나 장소 정보를 가져오지 못했어요. 다시 공유해 주세요.");
       return;
     }
-    takeSharedRestaurantImages()
-      .then((files) => {
-        if (!files.length) {
-          window.alert("공유된 사진이 없어요. 갤러리에서 이미지 파일을 선택해 주세요.");
+    takeSharedRestaurantContent()
+      .then(({ files, place }) => {
+        if (!files.length && !place) {
+          window.alert("공유된 내용이 없어요. 지도 앱의 장소나 갤러리 사진을 다시 공유해 주세요.");
           return;
         }
         tabRef.current = "restaurants";
         setTab("restaurants");
-        setSharedRestaurantFiles(files);
+        if (files.length) setSharedRestaurantFiles(files);
+        if (place) setSharedRestaurantPlace(place);
         window.sessionStorage.setItem("my-assistant-active-tab", "restaurants");
         window.history.pushState({ personalAssistantTab: "restaurants" }, "", cleanUrl);
         window.requestAnimationFrame(() => window.scrollTo(0, 0));
       })
-      .catch(() => window.alert("공유한 사진을 읽지 못했어요. 다시 시도해 주세요."));
+      .catch(() => window.alert("공유한 사진이나 장소 정보를 읽지 못했어요. 다시 시도해 주세요."));
   }, []);
   const navigateTab = (nextTab: Tab) => {
     const currentTab = tabRef.current;
@@ -4125,7 +4191,9 @@ export default function Home() {
         restaurants={restaurants}
         setRestaurants={setRestaurants}
         sharedFiles={sharedRestaurantFiles}
+        sharedPlace={sharedRestaurantPlace}
         clearSharedFiles={() => setSharedRestaurantFiles([])}
+        clearSharedPlace={() => setSharedRestaurantPlace(null)}
       />
     ),
     more: (

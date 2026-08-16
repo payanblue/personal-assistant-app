@@ -19,6 +19,9 @@ export default function manifest(): MetadataRoute.Manifest {
       method: "POST",
       enctype: "multipart/form-data",
       params: {
+        title: "title",
+        text: "text",
+        url: "url",
         files: [
           {
             name: "photos",
