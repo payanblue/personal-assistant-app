@@ -277,7 +277,8 @@ type BackupPayload = {
 type RestaurantCategory =
   | "전체"
   | "한식"
-  | "국밥·면"
+  | "국밥"
+  | "면"
   | "고기"
   | "회·해산물"
   | "일식"
@@ -302,10 +303,15 @@ type Restaurant = {
   createdAt: string;
 };
 
+type LegacyRestaurant = Omit<Restaurant, "category"> & {
+  category: Restaurant["category"] | "국밥·면";
+};
+
 const restaurantCategories: Array<{ id: RestaurantCategory; icon: string }> = [
   { id: "전체", icon: "🍽️" },
   { id: "한식", icon: "🍚" },
-  { id: "국밥·면", icon: "🍜" },
+  { id: "국밥", icon: "🍲" },
+  { id: "면", icon: "🍜" },
   { id: "고기", icon: "🥩" },
   { id: "회·해산물", icon: "🐟" },
   { id: "일식", icon: "🍣" },
@@ -318,6 +324,13 @@ const restaurantCategories: Array<{ id: RestaurantCategory; icon: string }> = [
 
 const categoryIcon = (category: RestaurantCategory) =>
   restaurantCategories.find((item) => item.id === category)?.icon ?? "📍";
+
+function normalizeRestaurant(restaurant: LegacyRestaurant): Restaurant {
+  if (restaurant.category !== "국밥·면") return restaurant as Restaurant;
+  const searchableText = `${restaurant.name} ${(restaurant.tags ?? []).join(" ")} ${restaurant.memo ?? ""}`;
+  const isNoodle = /(면|국수|냉면|짬뽕|짜장|우동|라멘|라면|쌀국수|소바|메밀)/.test(searchableText);
+  return { ...restaurant, category: isNoodle ? "면" : "국밥" };
+}
 
 function escapeHtml(value: string) {
   return value.replace(/[&<>"']/g, (character) => ({
@@ -4083,7 +4096,8 @@ export default function Home() {
         /* 기본 충전소 유지 */
       }
       try {
-        if (savedRestaurants) setRestaurants(JSON.parse(savedRestaurants) as Restaurant[]);
+        if (savedRestaurants)
+          setRestaurants((JSON.parse(savedRestaurants) as LegacyRestaurant[]).map(normalizeRestaurant));
       } catch {
         /* 빈 맛집 목록 유지 */
       }
@@ -4275,7 +4289,8 @@ export default function Home() {
       setEvents(retainCompletedEvents(backup.events.map(normalizeCalendarEvent)));
       if (backup.weatherLocation) setWeatherLocation(backup.weatherLocation);
       if (backup.chargers) setChargers(backup.chargers);
-      if (backup.restaurants) setRestaurants(backup.restaurants);
+      if (backup.restaurants)
+        setRestaurants((backup.restaurants as LegacyRestaurant[]).map(normalizeRestaurant));
       window.alert("백업 파일에서 데이터를 복원했습니다.");
     } catch {
       window.alert("이 앱에서 만든 올바른 백업 파일이 아닙니다.");
