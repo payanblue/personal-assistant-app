@@ -1070,7 +1070,7 @@ function HomeCalendar({
           const holiday = holidayName(dateKey);
           return (
             <button
-              className={`${dateKey === today ? "today" : ""} ${hasEvent ? "has-event" : ""} ${holiday || isSunday(dateKey) ? "holiday" : ""}`}
+              className={`${dateKey === today ? "today" : ""} ${hasEvent ? "has-event" : ""} ${holiday || isSunday(dateKey) ? "holiday" : ""} ${holiday ? "public-holiday" : ""}`}
               onClick={openCalendar}
               key={dateKey}
               title={holiday || undefined}
@@ -2229,7 +2229,7 @@ function CalendarView({
               const holiday = holidayName(key);
               return (
                 <button
-                  className={`${key === selectedDate ? "today" : ""} ${hasEvent ? "has-event" : ""} ${holiday || isSunday(key) ? "holiday" : ""}`}
+                  className={`${key === selectedDate ? "today" : ""} ${hasEvent ? "has-event" : ""} ${holiday || isSunday(key) ? "holiday" : ""} ${holiday ? "public-holiday" : ""}`}
                   onClick={() => setSelectedDate(key)}
                   key={key}
                   title={holiday || undefined}
