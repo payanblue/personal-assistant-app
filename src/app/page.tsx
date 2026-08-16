@@ -3050,13 +3050,14 @@ async function resolveSharedMapPlace(url: string): Promise<ResolvedMapPlace | nu
 
 function likelyRestaurantName(text: string) {
   const foodWords = /(식당|식탁|국밥|짬뽕|버거|마루|카페|커피|횟집|고기|냉면|치킨|분식|초밥|수제|한우|국수|우동|돈까스|돈가스|갈비|곱창|족발|보쌈|김밥|떡볶이|제과|베이커리)/;
-  const ignored = /(도로명|지번|리뷰|영업|복사|km|지도|검색|SKT|LTE|광역시|남구|중구|진구)/i;
+  const hardIgnored = /(도로명|지번|리뷰\s*\d*|영업\s*(중|종료)?|라스트\s*오더|복사|\d+(?:\.\d+)?\s*km|지도|검색|SKT|LTE|광역시|남구|중구|진구)/i;
+  const genericCategory = /^(한식|한식당|중식|중식당|일식|일식당|양식|양식당|음식점|카페|베이커리)$/;
   const mapBackground = /(대학교|대학원|과학관|공학관|교육관|문화회관|학생회관|아파트|주차장|은행|호텔|어린이집|학교|초등|중등|고등|GS25|CU|세븐일레븐)/i;
   const lines = text
     .split(/\n+/)
     .map((line) => line.replace(/[^0-9A-Za-z가-힣·&' ]/g, " ").replace(/\s+/g, " ").trim())
     .map((line) => foodWords.test(line) ? line.replace(/(\S{3,})\s+[가-힣A-Za-z]$/, "$1") : line)
-    .filter((line) => line.length >= 2 && line.length <= 28 && (!ignored.test(line) || foodWords.test(line)));
+    .filter((line) => line.length >= 2 && line.length <= 28 && !hardIgnored.test(line) && !genericCategory.test(line));
   const frequency = new Map<string, number>();
   lines.forEach((line) => frequency.set(line, (frequency.get(line) ?? 0) + 1));
   return lines
@@ -3675,8 +3676,8 @@ function MoreView({
         <button onClick={exportData}>
           <span>💾</span>
           <div>
-            <strong>전체 데이터 백업</strong>
-            <small>메모·업무·일정·맛집을 파일로 안전하게 저장</small>
+            <strong>전체 데이터 백업·저장</strong>
+            <small>저장 위치나 Google Drive를 직접 선택</small>
           </div>
           <b>↓</b>
         </button>
@@ -4187,7 +4188,7 @@ export default function Home() {
     voiceOpenRef.current = false;
     setVoiceOpen(false);
   };
-  const exportData = () => {
+  const exportData = async () => {
     const backup: BackupPayload = {
       app: "personal-assistant-app",
       version: 1,
@@ -4199,14 +4200,30 @@ export default function Home() {
       chargers,
       restaurants,
     };
-    const url = URL.createObjectURL(
-      new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" }),
+    const fileName = `나의비서-백업-${localDateKey()}.json`;
+    const file = new File(
+      [JSON.stringify(backup, null, 2)],
+      fileName,
+      { type: "application/json" },
     );
+    if (navigator.share && navigator.canShare?.({ files: [file] })) {
+      try {
+        await navigator.share({
+          files: [file],
+          title: "나의 비서 전체 데이터 백업",
+        });
+        return;
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+      }
+    }
+    const url = URL.createObjectURL(file);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `나의비서-백업-${localDateKey()}.json`;
+    link.download = fileName;
     link.click();
-    URL.revokeObjectURL(url);
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    window.alert(`백업 파일을 휴대폰의 다운로드 폴더에 저장했어요.\n파일명: ${fileName}`);
   };
   const exportText = () => {
     const text = ["나의 비서 기록", "", "[메모]", ...memos.filter(item => !item.deleted).map(item => `- ${item.title}${item.content ? `: ${item.content}` : ""}`), "", "[업무 메모]", ...workItems.filter(item => !item.archived).map(item => `- ${item.completed ? "[완료] " : ""}${item.title}`), "", "[일정]", ...events.filter(item => !item.deleted).map(item => `- ${item.date} ${item.allDay ? "종일" : item.time} | ${item.title}${item.repeatYearly ? " (매년)" : ""}`), "", "[맛집]", ...restaurants.map(item => `- ${item.name} | ${item.category} | ${item.address}`)].join("\n");
