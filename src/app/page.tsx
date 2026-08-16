@@ -55,6 +55,14 @@ type TesseractApi = {
     language: string,
     options?: { logger?: (message: { status?: string; progress?: number }) => void },
   ) => Promise<{ data: { text: string } }>;
+  createWorker?: (
+    languages: string,
+    engineMode?: number,
+    options?: { logger?: (message: { status?: string; progress?: number }) => void },
+  ) => Promise<{
+    recognize: (image: File) => Promise<{ data: { text: string } }>;
+    terminate: () => Promise<void>;
+  }>;
 };
 
 declare global {
@@ -246,6 +254,7 @@ type CalendarEvent = {
   deleted?: boolean;
   completed?: boolean;
   completedAt?: string;
+  archivedAt?: string;
 };
 
 type BackupPayload = {
@@ -330,6 +339,40 @@ function retainRecentCompleted<T extends { completed?: boolean; completedAt?: st
     );
 }
 
+function isPastCompletionMonth(event: CalendarEvent, now = new Date()) {
+  if (!event.completed) return false;
+  const completedDate = event.completedAt ? new Date(event.completedAt) : now;
+  if (Number.isNaN(completedDate.getTime())) return false;
+  return (
+    completedDate.getFullYear() < now.getFullYear() ||
+    (completedDate.getFullYear() === now.getFullYear() && completedDate.getMonth() < now.getMonth())
+  );
+}
+
+function calendarEventIsVisible(event: CalendarEvent, now = new Date()) {
+  return !event.deleted && (!event.completed || !isPastCompletionMonth(event, now));
+}
+
+function retainCompletedEvents(items: CalendarEvent[]): CalendarEvent[] {
+  const now = new Date();
+  const nowMs = now.getTime();
+  const nowIso = now.toISOString();
+  return items
+    .map((item) => {
+      if (!item.completed) return item;
+      const withCompletedAt = item.completedAt ? item : { ...item, completedAt: nowIso };
+      return isPastCompletionMonth(withCompletedAt, now) && !withCompletedAt.archivedAt
+        ? { ...withCompletedAt, archivedAt: nowIso }
+        : withCompletedAt;
+    })
+    .filter(
+      (item) =>
+        !item.completed ||
+        !item.archivedAt ||
+        nowMs - Date.parse(item.archivedAt) < COMPLETED_RETENTION_MS,
+    );
+}
+
 function normalizeCalendarEvent(
   event: CalendarEvent & { duration?: string; category?: string },
 ): CalendarEvent {
@@ -351,6 +394,7 @@ function normalizeCalendarEvent(
     deleted: Boolean(event.deleted),
     completed: Boolean(event.completed),
     completedAt: event.completedAt,
+    archivedAt: event.archivedAt,
   };
 }
 
@@ -834,7 +878,7 @@ function HomeCalendar({
           if (day < 1 || day > daysInMonth) return <span key={index} />;
           const dateKey = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
           const hasEvent = events.some(
-            (event) => !event.deleted && !event.completed && eventOccursOn(event, dateKey),
+            (event) => calendarEventIsVisible(event) && eventOccursOn(event, dateKey),
           );
           return (
             <button
@@ -874,12 +918,12 @@ function HomeView({
   const today = localDateKey();
   const todayEvents = events
     .filter(
-      (event) => !event.deleted && !event.completed && eventOccursOn(event, today),
+      (event) => calendarEventIsVisible(event) && eventOccursOn(event, today),
     )
-    .sort((a, b) => a.time.localeCompare(b.time));
+    .sort((a, b) => Number(Boolean(a.completed)) - Number(Boolean(b.completed)) || a.time.localeCompare(b.time));
   const weekEvents = events
     .flatMap((event) => {
-      if (event.deleted || event.completed) return [];
+      if (!calendarEventIsVisible(event)) return [];
       const occurrence = nextOccurrence(event);
       if (!occurrence) return [];
       const days = daysBetween(today, occurrence);
@@ -943,7 +987,7 @@ function HomeView({
           <button onClick={() => go("calendar")}>전체보기</button>
         </div>
         {todayEvents.length > 0 ? (
-          <article className="schedule-card">
+          <article className={`schedule-card ${todayEvents[0].completed ? "completed-entry" : ""}`}>
             <div className="time">
               <strong>
                 {todayEvents[0].allDay ? "종일" : todayEvents[0].time}
@@ -1696,17 +1740,16 @@ function CalendarView({
     .filter((event) =>
       trash
         ? event.deleted
-        : !event.deleted &&
-          !event.completed &&
-          eventOccursOn(event, selectedDate),
+        : calendarEventIsVisible(event) && eventOccursOn(event, selectedDate),
     )
     .sort(
       (a, b) =>
+        Number(Boolean(a.completed)) - Number(Boolean(b.completed)) ||
         Number(Boolean(b.allDay)) - Number(Boolean(a.allDay)) ||
         a.time.localeCompare(b.time),
     );
   const monthEvents = events.filter(event => {
-    if (event.deleted || event.completed) return false;
+    if (!calendarEventIsVisible(event)) return false;
     const occurrence = event.repeatYearly ? occurrenceInYear(event, year) : event.date;
     return occurrence?.startsWith(`${year}-${String(month + 1).padStart(2, "0")}`);
   }).sort((a, b) => (a.repeatYearly ? occurrenceInYear(a, year) ?? "" : a.date).localeCompare(b.repeatYearly ? occurrenceInYear(b, year) ?? "" : b.date) || a.time.localeCompare(b.time));
@@ -1990,9 +2033,7 @@ function CalendarView({
               const key = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
               const hasEvent = events.some(
                 (event) =>
-                  !event.deleted &&
-                  !event.completed &&
-                  eventOccursOn(event, key),
+                  calendarEventIsVisible(event) && eventOccursOn(event, key),
               );
               const lunar = solarToLunar(key);
               const showLunar = day === 1 || day % 5 === 0;
@@ -2249,6 +2290,7 @@ function CalendarView({
                                   completedAt: item.completed
                                     ? undefined
                                     : new Date().toISOString(),
+                                  archivedAt: undefined,
                                 }
                               : item,
                           ),
@@ -2763,13 +2805,31 @@ function loadTesseract() {
   return tesseractPromise;
 }
 
+type RestaurantImportItem = {
+  id: number;
+  fileName: string;
+  name: string;
+  status: "processing" | "ready" | "needs-review";
+};
+
 function likelyRestaurantName(text: string) {
-  const ignored = /(도로명|지번|리뷰|영업|복사|km|지도|검색|SKT|LTE|부산|울산|광역시|남구|중구|진구)/i;
-  return text
+  const ignored = /(도로명|지번|리뷰|영업|복사|km|지도|검색|SKT|LTE|부산|울산|광역시|남구|중구|진구|주차장|아파트|은행|호텔|공원)/i;
+  const lines = text
     .split(/\n+/)
     .map((line) => line.replace(/[^0-9A-Za-z가-힣·&' ]/g, " ").replace(/\s+/g, " ").trim())
-    .filter((line) => line.length >= 2 && line.length <= 24 && !ignored.test(line))
-    .sort((a, b) => b.length - a.length)[0] ?? "";
+    .filter((line) => line.length >= 2 && line.length <= 28 && !ignored.test(line));
+  const frequency = new Map<string, number>();
+  lines.forEach((line) => frequency.set(line, (frequency.get(line) ?? 0) + 1));
+  return lines
+    .map((line) => {
+      const hangul = (line.match(/[가-힣]/g) ?? []).length;
+      const latin = (line.match(/[A-Za-z]/g) ?? []).length;
+      const foodBonus = /(식당|국밥|짬뽕|버거|마루|카페|커피|횟집|고기|냉면|치킨|분식|초밥|수제|한우)/.test(line) ? 16 : 0;
+      const repeatBonus = ((frequency.get(line) ?? 1) - 1) * 18;
+      return { line, score: hangul * 5 - latin * 2 + foodBonus + repeatBonus };
+    })
+    .filter((item) => (item.line.match(/[가-힣]/g) ?? []).length >= 2)
+    .sort((a, b) => b.score - a.score || a.line.length - b.line.length)[0]?.line ?? "";
 }
 
 function RestaurantMapView({
@@ -2793,6 +2853,8 @@ function RestaurantMapView({
   const [results, setResults] = useState<PlaceSearchResult[]>([]);
   const [searching, setSearching] = useState(false);
   const [ocrStatus, setOcrStatus] = useState("");
+  const [bulkItems, setBulkItems] = useState<RestaurantImportItem[]>([]);
+  const [activeBulkId, setActiveBulkId] = useState<number | null>(null);
   const [name, setName] = useState("");
   const [address, setAddress] = useState("");
   const [latitude, setLatitude] = useState<number | null>(null);
@@ -2882,7 +2944,10 @@ function RestaurantMapView({
         `https://nominatim.openstreetmap.org/search?format=jsonv2&countrycodes=kr&limit=8&accept-language=ko&q=${encodeURIComponent(value.trim())}`,
       );
       if (!response.ok) throw new Error("search failed");
-      setResults((await response.json()) as PlaceSearchResult[]);
+      const places = (await response.json()) as PlaceSearchResult[];
+      setResults(places);
+      if (!places.length)
+        setOcrStatus("검색 결과가 없어요. 상호명 뒤에 동네나 주소를 함께 적어 다시 검색해 주세요.");
     } catch {
       window.alert("장소를 찾지 못했어요. 상호명 뒤에 동네나 주소를 함께 적어보세요.");
     } finally {
@@ -2890,18 +2955,20 @@ function RestaurantMapView({
     }
   };
   const chooseResult = (result: PlaceSearchResult) => {
-    setName(query.trim() || result.display_name.split(",")[0]);
+    const resultName = result.display_name.split(",")[0].trim();
+    setName(resultName || query.trim());
+    setQuery(resultName || query.trim());
     setAddress(result.display_name);
     setLatitude(Number(result.lat));
     setLongitude(Number(result.lon));
     setResults([]);
     mapRef.current?.setView([Number(result.lat), Number(result.lon)], 16);
   };
-  const resetEditor = () => {
+  const resetFields = () => {
     setEditingId(null); setQuery(""); setResults([]); setName(""); setAddress("");
     setLatitude(null); setLongitude(null); setCategory("한식"); setTags(""); setMemo(""); setVisited(false); setOcrStatus("");
   };
-  const openNew = () => { resetEditor(); setEditorOpen(true); };
+  const openNew = () => { resetFields(); setActiveBulkId(null); setEditorOpen(true); };
   const openEdit = (restaurant: Restaurant) => {
     setEditingId(restaurant.id); setQuery(restaurant.name); setName(restaurant.name);
     setAddress(restaurant.address); setLatitude(restaurant.latitude); setLongitude(restaurant.longitude);
@@ -2921,27 +2988,78 @@ function RestaurantMapView({
     setRestaurants((current) => editingId === null
       ? [{ id: Date.now(), ...value, createdAt: new Date().toISOString() }, ...current]
       : current.map((item) => item.id === editingId ? { ...item, ...value } : item));
-    setEditorOpen(false);
+    if (activeBulkId !== null) {
+      const remaining = bulkItems.filter((item) => item.id !== activeBulkId);
+      setBulkItems(remaining);
+      setActiveBulkId(null);
+      if (remaining.length) {
+        resetFields();
+        setOcrStatus(`등록했어요. 확인할 캡처가 ${remaining.length}장 남았어요.`);
+      } else setEditorOpen(false);
+    } else setEditorOpen(false);
   };
-  const readScreenshot = async (file: File) => {
-    setOcrStatus("사진에서 상호명을 읽는 중이에요…");
+  const readScreenshots = async (files: File[]) => {
+    if (!files.length) return;
+    const startedAt = Date.now();
+    const queued = files.map((file, index) => ({
+      id: startedAt + index,
+      fileName: file.name,
+      name: "",
+      status: "processing" as const,
+    }));
+    setBulkItems((current) => [...current, ...queued]);
+    setOcrStatus(`${files.length}장의 상호명을 차례로 읽고 있어요. 화면을 닫지 마세요.`);
     try {
       await loadTesseract();
-      const result = await window.Tesseract?.recognize(file, "kor+eng", {
-        logger: (message) => {
-          if (message.status === "recognizing text")
-            setOcrStatus(`글자 인식 ${Math.round((message.progress ?? 0) * 100)}%`);
-        },
-      });
-      const candidate = likelyRestaurantName(result?.data.text ?? "");
-      if (!candidate) throw new Error("no candidate");
-      setQuery(candidate);
-      setName(candidate);
-      setOcrStatus(`‘${candidate}’로 찾았어요. 아래 검색 결과에서 정확한 장소를 선택하세요.`);
-      await searchPlace(candidate);
+      let processingIndex = 0;
+      const worker = window.Tesseract?.createWorker
+        ? await window.Tesseract.createWorker("kor+eng", 1, {
+            logger: (message) => {
+              if (message.status === "recognizing text")
+                setOcrStatus(`${processingIndex + 1}/${files.length}장 인식 중 · ${Math.round((message.progress ?? 0) * 100)}%`);
+            },
+          })
+        : null;
+      for (let index = 0; index < files.length; index += 1) {
+        processingIndex = index;
+        const file = files[index];
+        const item = queued[index];
+        try {
+          const result = worker
+            ? await worker.recognize(file)
+            : await window.Tesseract?.recognize(file, "kor+eng", {
+                logger: (message) => {
+                  if (message.status === "recognizing text")
+                    setOcrStatus(`${index + 1}/${files.length}장 인식 중 · ${Math.round((message.progress ?? 0) * 100)}%`);
+                },
+              });
+          const candidate = likelyRestaurantName(result?.data.text ?? "");
+          setBulkItems((current) => current.map((entry) => entry.id === item.id
+            ? { ...entry, name: candidate, status: candidate ? "ready" : "needs-review" }
+            : entry));
+        } catch {
+          setBulkItems((current) => current.map((entry) => entry.id === item.id
+            ? { ...entry, status: "needs-review" }
+            : entry));
+        }
+      }
+      await worker?.terminate();
+      setOcrStatus("인식이 끝났어요. 이름을 확인한 뒤 ‘장소 확인’을 눌러 주세요.");
     } catch {
-      setOcrStatus("자동 인식이 어려워요. 상호명을 직접 입력해 주세요.");
+      setBulkItems((current) => current.map((entry) => queued.some((item) => item.id === entry.id)
+        ? { ...entry, status: "needs-review" }
+        : entry));
+      setOcrStatus("자동 인식을 불러오지 못했어요. 각 칸에 상호명을 직접 입력할 수 있어요.");
     }
+  };
+  const checkBulkItem = (item: RestaurantImportItem) => {
+    if (!item.name.trim()) return;
+    resetFields();
+    setActiveBulkId(item.id);
+    setQuery(item.name.trim());
+    setName(item.name.trim());
+    setOcrStatus("검색 결과에서 정확한 장소를 선택한 뒤 저장하세요.");
+    void searchPlace(item.name.trim());
   };
 
   return (
@@ -2986,13 +3104,34 @@ function RestaurantMapView({
           <section className="restaurant-editor">
             <header><div><p className="eyebrow">내 맛집 지도</p><h2>{editingId === null ? "맛집 등록" : "맛집 수정"}</h2></div><button onClick={() => setEditorOpen(false)}>×</button></header>
             <div className="restaurant-import-actions">
-              <button onClick={() => fileInput.current?.click()}>▣ 지도 캡처에서 찾기</button>
-              <input ref={fileInput} type="file" accept="image/*" hidden onChange={(event) => { const file = event.target.files?.[0]; if (file) void readScreenshot(file); event.target.value = ""; }} />
+              <button onClick={() => fileInput.current?.click()}>▣ 지도 캡처 여러 장 가져오기</button>
+              <input ref={fileInput} type="file" accept="image/*" multiple hidden onChange={(event) => { const files = Array.from(event.target.files ?? []); if (files.length) void readScreenshots(files); event.target.value = ""; }} />
             </div>
             {ocrStatus && <p className="ocr-status">{ocrStatus}</p>}
+            {bulkItems.length > 0 && (
+              <section className="restaurant-import-queue">
+                <div><strong>캡처 임시 보관함</strong><span>{bulkItems.length}장</span></div>
+                {bulkItems.map((item, index) => (
+                  <article className={activeBulkId === item.id ? "active" : ""} key={item.id}>
+                    <span>{index + 1}</span>
+                    <div>
+                      <input
+                        value={item.name}
+                        onChange={(event) => setBulkItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, name: event.target.value, status: "ready" } : entry))}
+                        placeholder={item.status === "processing" ? "상호명 인식 중…" : "상호명을 직접 입력"}
+                        disabled={item.status === "processing"}
+                      />
+                      <small>{item.fileName}{item.status === "needs-review" ? " · 이름 확인 필요" : ""}</small>
+                    </div>
+                    <button onClick={() => checkBulkItem(item)} disabled={item.status === "processing" || !item.name.trim()}>장소 확인</button>
+                    <button className="queue-remove" aria-label="목록에서 제거" onClick={() => setBulkItems((current) => current.filter((entry) => entry.id !== item.id))}>×</button>
+                  </article>
+                ))}
+              </section>
+            )}
             <label>상호명 또는 주소<div className="restaurant-search-row"><input value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void searchPlace(); }} placeholder="예: 점심엔 한우국밥 울산" autoFocus /><button onClick={() => void searchPlace()} disabled={searching}>{searching ? "검색 중" : "검색"}</button></div></label>
             {results.length > 0 && <div className="restaurant-search-results">{results.map((result) => <button onClick={() => chooseResult(result)} key={`${result.lat}-${result.lon}`}><strong>{result.display_name.split(",")[0]}</strong><small>{result.display_name}</small></button>)}</div>}
-            {name && <div className="chosen-place"><strong>선택: {name}</strong><small>{address}</small></div>}
+            {latitude !== null && longitude !== null && <label className="chosen-place-label">저장할 상호명<input value={name} onChange={(event) => setName(event.target.value)} /><small>선택한 장소: {address}</small></label>}
             <label>음식 종류<select value={category} onChange={(event) => setCategory(event.target.value as Exclude<RestaurantCategory, "전체">)}>{restaurantCategories.filter((item) => item.id !== "전체").map((item) => <option key={item.id} value={item.id}>{item.icon} {item.id}</option>)}</select></label>
             <label>상세 태그<input value={tags} onChange={(event) => setTags(event.target.value)} placeholder="국밥, 짬뽕, 수제버거처럼 쉼표로 구분" /></label>
             <label>내 메모<textarea value={memo} onChange={(event) => setMemo(event.target.value)} rows={3} placeholder="먹고 싶은 메뉴, 주차 등" /></label>
@@ -3039,7 +3178,7 @@ function MoreView({
     (memo) => memo.completed && !memo.deleted,
   );
   const completedEvents = events.filter(
-    (event) => event.completed && !event.deleted,
+    (event) => event.completed && !event.deleted && isPastCompletionMonth(event),
   );
   const daysRemaining = (completedAt?: string) => {
     if (!completedAt) return 30;
@@ -3155,7 +3294,7 @@ function MoreView({
           <span>✓</span>
           <div>
             <strong>완료 휴지통</strong>
-            <small>완료한 메모·일정 · 30일 보관</small>
+            <small>메모는 바로 · 일정은 다음 달부터 30일 보관</small>
           </div>
           <b>›</b>
         </button>
@@ -3268,14 +3407,14 @@ function MoreView({
           <div className="section-title">
             <div>
               <h2>완료 휴지통</h2>
-              <small>완료 후 30일이 지나면 자동으로 영구 삭제돼요.</small>
+              <small>일정은 완료한 달까지 캘린더에 남고 다음 달부터 30일 보관돼요.</small>
             </div>
             <button onClick={() => setCompletedTrashOpen(false)}>닫기</button>
           </div>
           {completedMemos.length === 0 && completedEvents.length === 0 ? (
             <div className="empty-memos">
               <strong>완료한 항목이 없어요</strong>
-              <p>메모나 일정을 완료하면 이곳에 30일 동안 보관됩니다.</p>
+              <p>완료 메모와 지난달까지 완료한 일정이 이곳에 표시됩니다.</p>
             </div>
           ) : (
             <div className="completed-trash-list">
@@ -3307,7 +3446,7 @@ function MoreView({
                   <div>
                     <strong>{event.title}</strong>
                     <small>
-                      {event.date} · 자동 삭제까지 {daysRemaining(event.completedAt)}일
+                      {event.date} · 자동 삭제까지 {daysRemaining(event.archivedAt)}일
                     </small>
                   </div>
                   <button
@@ -3315,7 +3454,7 @@ function MoreView({
                       setEvents((current) =>
                         current.map((item) =>
                           item.id === event.id
-                            ? { ...item, completed: false, completedAt: undefined }
+                            ? { ...item, completed: false, completedAt: undefined, archivedAt: undefined }
                             : item,
                         ),
                       )
@@ -3435,7 +3574,7 @@ export default function Home() {
       try {
         if (savedEvents)
           setEvents(
-            retainRecentCompleted(
+            retainCompletedEvents(
               (
                 JSON.parse(savedEvents) as Array<
                   CalendarEvent & { duration?: string; category?: string }
@@ -3520,11 +3659,11 @@ export default function Home() {
     const purgeExpiredCompleted = () => {
       setMemos((current) => {
         const next = retainRecentCompleted(current);
-        return next.length === current.length ? current : next;
+        return next;
       });
       setEvents((current) => {
-        const next = retainRecentCompleted(current);
-        return next.length === current.length ? current : next;
+        const next = retainCompletedEvents(current);
+        return next;
       });
     };
     const timer = window.setInterval(purgeExpiredCompleted, 60 * 60 * 1000);
@@ -3639,7 +3778,7 @@ export default function Home() {
         return;
       setMemos(retainRecentCompleted(backup.memos));
       setWorkItems(backup.workItems);
-      setEvents(retainRecentCompleted(backup.events.map(normalizeCalendarEvent)));
+      setEvents(retainCompletedEvents(backup.events.map(normalizeCalendarEvent)));
       if (backup.weatherLocation) setWeatherLocation(backup.weatherLocation);
       if (backup.chargers) setChargers(backup.chargers);
       if (backup.restaurants) setRestaurants(backup.restaurants);
