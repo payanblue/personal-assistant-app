@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import KoreanLunarCalendar from "korean-lunar-calendar";
 
-type Tab = "home" | "memo" | "work" | "calendar" | "more" | "weather" | "charge";
+type Tab = "home" | "memo" | "work" | "calendar" | "restaurants" | "more" | "weather" | "charge";
 type VoiceKind = "memo" | "work" | "calendar";
 
 type SpeechRecognitionResultEventLike = Event & {
@@ -32,10 +32,37 @@ type GoogleTokenClient = {
   requestAccessToken: (options?: { prompt?: string }) => void;
 };
 
+type LeafletMap = {
+  setView: (center: [number, number], zoom: number) => LeafletMap;
+  remove: () => void;
+};
+type LeafletLayer = { clearLayers: () => void; addTo: (map: LeafletMap) => LeafletLayer };
+type LeafletMarker = {
+  addTo: (layer: LeafletLayer) => LeafletMarker;
+  on: (event: string, handler: () => void) => LeafletMarker;
+};
+type LeafletApi = {
+  map: (element: HTMLElement, options?: Record<string, unknown>) => LeafletMap;
+  tileLayer: (url: string, options?: Record<string, unknown>) => { addTo: (map: LeafletMap) => void };
+  layerGroup: () => LeafletLayer;
+  marker: (position: [number, number], options?: Record<string, unknown>) => LeafletMarker;
+  circleMarker: (position: [number, number], options?: Record<string, unknown>) => LeafletMarker;
+  divIcon: (options: Record<string, unknown>) => unknown;
+};
+type TesseractApi = {
+  recognize: (
+    image: File,
+    language: string,
+    options?: { logger?: (message: { status?: string; progress?: number }) => void },
+  ) => Promise<{ data: { text: string } }>;
+};
+
 declare global {
   interface Window {
     SpeechRecognition?: SpeechRecognitionConstructor;
     webkitSpeechRecognition?: SpeechRecognitionConstructor;
+    L?: LeafletApi;
+    Tesseract?: TesseractApi;
     google?: {
       accounts: {
         oauth2: {
@@ -231,7 +258,57 @@ type BackupPayload = {
   weatherLocation?: WeatherLocation;
   savedWeatherLocations?: WeatherLocation[];
   chargers?: ChargerFavorite[];
+  restaurants?: Restaurant[];
 };
+
+type RestaurantCategory =
+  | "전체"
+  | "한식"
+  | "국밥·면"
+  | "고기"
+  | "회·해산물"
+  | "일식"
+  | "중식"
+  | "양식"
+  | "치킨·분식"
+  | "카페·디저트"
+  | "기타";
+
+type Restaurant = {
+  id: number;
+  name: string;
+  address: string;
+  latitude: number;
+  longitude: number;
+  category: Exclude<RestaurantCategory, "전체">;
+  tags: string[];
+  memo: string;
+  visited: boolean;
+  createdAt: string;
+};
+
+const restaurantCategories: Array<{ id: RestaurantCategory; icon: string }> = [
+  { id: "전체", icon: "🍽️" },
+  { id: "한식", icon: "🍚" },
+  { id: "국밥·면", icon: "🍜" },
+  { id: "고기", icon: "🥩" },
+  { id: "회·해산물", icon: "🐟" },
+  { id: "일식", icon: "🍣" },
+  { id: "중식", icon: "🥟" },
+  { id: "양식", icon: "🍝" },
+  { id: "치킨·분식", icon: "🍗" },
+  { id: "카페·디저트", icon: "☕" },
+  { id: "기타", icon: "📍" },
+];
+
+const categoryIcon = (category: RestaurantCategory) =>
+  restaurantCategories.find((item) => item.id === category)?.icon ?? "📍";
+
+function escapeHtml(value: string) {
+  return value.replace(/[&<>"']/g, (character) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;",
+  })[character] ?? character);
+}
 
 const sampleEvents: CalendarEvent[] = [];
 const COMPLETED_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
@@ -352,9 +429,12 @@ const menuItems: { icon: string; label: string; id: Tab }[] = [
   { icon: "⌂", label: "홈", id: "home" },
   { icon: "✎", label: "메모", id: "memo" },
   { icon: "✓", label: "업무", id: "work" },
-  { icon: "□", label: "일정", id: "calendar" },
-  { icon: "⚡", label: "충전", id: "charge" },
+  { icon: "●", label: "맛집 지도", id: "restaurants" },
   { icon: "•••", label: "더보기", id: "more" },
+];
+
+const validTabs: Tab[] = [
+  "home", "memo", "work", "calendar", "restaurants", "more", "weather", "charge",
 ];
 
 type ChargerFavorite = {
@@ -463,21 +543,11 @@ function voiceTitle(text: string) {
   return (cleaned || text.trim()).slice(0, 42);
 }
 
-function airGrade(value: number, kind: "pm10" | "pm2_5") {
-  const limits = kind === "pm10" ? [30, 80, 150] : [15, 35, 75];
-  if (value <= limits[0]) return { label: "좋음", className: "good" };
-  if (value <= limits[1]) return { label: "보통", className: "normal" };
-  if (value <= limits[2]) return { label: "나쁨", className: "bad" };
-  return { label: "매우 나쁨", className: "very-bad" };
-}
-
 function HomeWeather({
   location,
-  openDetails,
   onCurrentWeather,
 }: {
   location: WeatherLocation;
-  openDetails: () => void;
   onCurrentWeather?: (weather: GreetingWeather) => void;
 }) {
   const [forecast, setForecast] = useState<WeatherResponse | null>(null);
@@ -488,19 +558,19 @@ function HomeWeather({
     const common = `latitude=${location.latitude}&longitude=${location.longitude}&timezone=${encodeURIComponent(location.timezone)}&forecast_days=16&wind_speed_unit=ms`;
     const forecastUrl = `https://api.open-meteo.com/v1/forecast?${common}&current=temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code&hourly=temperature_2m,relative_humidity_2m,precipitation_probability,precipitation,weather_code,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum,wind_speed_10m_max,sunrise,sunset`;
     const airUrl = `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${location.latitude}&longitude=${location.longitude}&timezone=${encodeURIComponent(location.timezone)}&hourly=pm10,pm2_5`;
-    Promise.all([fetch(forecastUrl), fetch(airUrl)])
-      .then(async ([weatherResponse, airResponse]) => {
-        if (!weatherResponse.ok || !airResponse.ok)
-          throw new Error("home weather request failed");
-        const [weatherValue, airValue] = (await Promise.all([
-          weatherResponse.json(),
-          airResponse.json(),
-        ])) as [WeatherResponse, AirQualityResponse];
+    fetch(forecastUrl)
+      .then(async (weatherResponse) => {
+        if (!weatherResponse.ok) throw new Error("home weather request failed");
+        const weatherValue = (await weatherResponse.json()) as WeatherResponse;
         setFailed(false);
         setForecast(weatherValue);
-        setAir(airValue);
       })
       .catch(() => setFailed(true));
+    fetch(airUrl)
+      .then(async (airResponse) => {
+        if (airResponse.ok) setAir((await airResponse.json()) as AirQualityResponse);
+      })
+      .catch(() => setAir(null));
   }, [location]);
 
   useEffect(() => {
@@ -520,14 +590,12 @@ function HomeWeather({
 
   if (failed)
     return (
-      <button className="home-weather-error" onClick={openDetails}>
-        날씨를 불러오지 못했어요 · 다시 확인
-      </button>
+      <div className="home-weather-error">오늘 날씨를 불러오지 못했어요</div>
     );
-  if (!forecast?.hourly || !air?.hourly)
+  if (!forecast?.hourly)
     return (
       <div className="home-weather-loading">
-        24시간 예보를 불러오는 중이에요
+        오늘 날씨를 불러오는 중이에요
       </div>
     );
 
@@ -537,22 +605,20 @@ function HomeWeather({
     0,
     forecast.hourly.time.findIndex((time) => time >= currentHour),
   );
-  const hours = forecast.hourly.time.slice(startIndex, startIndex + 24);
-  const airIndex = Math.max(
-    0,
-    air.hourly.time.findIndex((time) => time >= currentHour),
-  );
-  const pm10 = Math.round(air.hourly.pm10[airIndex] ?? 0);
-  const pm25 = Math.round(air.hourly.pm2_5[airIndex] ?? 0);
-  const pm10Grade = airGrade(pm10, "pm10");
-  const pm25Grade = airGrade(pm25, "pm2_5");
+  const airIndex = air?.hourly
+    ? Math.max(0, air.hourly.time.findIndex((time) => time >= currentHour))
+    : -1;
+  const pm10 = airIndex >= 0 ? Math.round(air?.hourly.pm10[airIndex] ?? 0) : null;
+  const pm25 = airIndex >= 0 ? Math.round(air?.hourly.pm2_5[airIndex] ?? 0) : null;
+  const rainChance = forecast.hourly.precipitation_probability[startIndex] ?? 0;
+  const rainAmount = forecast.hourly.precipitation[startIndex] ?? 0;
 
   return (
     <section
-      className="home-weather"
-      aria-label={`${location.name} 24시간 날씨`}
+      className="home-weather home-weather-compact"
+      aria-label={`${location.name} 오늘 날씨`}
     >
-      <button className="home-weather-current" onClick={openDetails}>
+      <div className="home-weather-current">
         <div>
           <p>
             {location.name} ·{" "}
@@ -560,54 +626,19 @@ function HomeWeather({
           </p>
           <strong>{Math.round(forecast.current?.temperature_2m ?? 0)}°</strong>
           <span>
-            체감 {(forecast.current?.apparent_temperature ?? 0).toFixed(1)}° ·
-            습도 {(forecast.current?.relative_humidity_2m ?? 0).toFixed(1)}% · 바람{" "}
-            {(forecast.current?.wind_speed_10m ?? 0).toFixed(1)}m/s
+            최고 {Math.round(forecast.daily.temperature_2m_max[0] ?? 0)}° · 최저{" "}
+            {Math.round(forecast.daily.temperature_2m_min[0] ?? 0)}°
           </span>
         </div>
         <b>{weatherIcon(forecast.current?.weather_code ?? 3)}</b>
-      </button>
-      <div className="air-quality-row">
-        <div className={`air-chip ${pm10Grade.className}`}>
-          <span>미세먼지</span>
-          <strong>{pm10}</strong>
-          <small>{pm10Grade.label}</small>
-        </div>
-        <div className={`air-chip ${pm25Grade.className}`}>
-          <span>초미세먼지</span>
-          <strong>{pm25}</strong>
-          <small>{pm25Grade.label}</small>
-        </div>
       </div>
-      <div className="sun-times"><span>🌅 일출 {forecast.daily.sunrise?.[0]?.slice(11, 16) ?? "-"}</span><span>🌇 일몰 {forecast.daily.sunset?.[0]?.slice(11, 16) ?? "-"}</span></div>
-      <div className="hourly-heading">
-        <strong>24시간 예보</strong>
-        <span>옆으로 밀어 확인</span>
-      </div>
-      <div className="hourly-strip">
-        {hours.map((time, offset) => {
-          const index = startIndex + offset;
-          const date = new Date(time);
-          return (
-            <article className={offset === 0 ? "now" : ""} key={time}>
-              <time>{offset === 0 ? "지금" : `${date.getHours()}시`}</time>
-              <b>{weatherIcon(forecast.hourly?.weather_code[index] ?? 3)}</b>
-              <strong>
-                {Math.round(forecast.hourly?.temperature_2m[index] ?? 0)}°
-              </strong>
-              {(forecast.hourly?.precipitation_probability[index] ?? 0) > 10 && <span className="hourly-rain">비 {forecast.hourly?.precipitation_probability[index] ?? 0}%</span>}
-              {(forecast.hourly?.precipitation[index] ?? 0) > 1 && <span>강수 {(forecast.hourly?.precipitation[index] ?? 0).toFixed(1)}mm</span>}
-              <span>
-                바람 {Math.round(forecast.hourly?.wind_speed_10m[index] ?? 0)}m/s
-              </span>
-              <span>
-                습도 {forecast.hourly?.relative_humidity_2m[index] ?? 0}%
-              </span>
-              <span>미세 {Math.round(air.hourly.pm10[index] ?? 0)}</span>
-              <span>초미세 {Math.round(air.hourly.pm2_5[index] ?? 0)}</span>
-            </article>
-          );
-        })}
+      <div className="compact-weather-facts">
+        <span>습도 {Math.round(forecast.current?.relative_humidity_2m ?? 0)}%</span>
+        <span>바람 {(forecast.current?.wind_speed_10m ?? 0).toFixed(1)}m/s</span>
+        {rainChance > 10 && <span>비 {rainChance}%</span>}
+        {rainAmount > 1 && <span>강수 {rainAmount.toFixed(1)}mm</span>}
+        {pm10 !== null && <span>미세 {pm10}</span>}
+        {pm25 !== null && <span>초미세 {pm25}</span>}
       </div>
     </section>
   );
@@ -769,19 +800,70 @@ function VoiceCapture({
   );
 }
 
+function HomeCalendar({
+  events,
+  openCalendar,
+}: {
+  events: CalendarEvent[];
+  openCalendar: () => void;
+}) {
+  const [visibleMonth, setVisibleMonth] = useState(
+    () => new Date(new Date().getFullYear(), new Date().getMonth(), 1),
+  );
+  const year = visibleMonth.getFullYear();
+  const month = visibleMonth.getMonth();
+  const firstDay = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const today = localDateKey();
+  const changeMonth = (amount: number) =>
+    setVisibleMonth(new Date(year, month + amount, 1));
+
+  return (
+    <section className="home-calendar" aria-label="월간 캘린더">
+      <header>
+        <button onClick={() => changeMonth(-1)} aria-label="이전 달">‹</button>
+        <strong>{year}년 {month + 1}월</strong>
+        <button onClick={() => changeMonth(1)} aria-label="다음 달">›</button>
+      </header>
+      <div className="home-calendar-weekdays">
+        {["일", "월", "화", "수", "목", "금", "토"].map((day) => <span key={day}>{day}</span>)}
+      </div>
+      <div className="home-calendar-days">
+        {Array.from({ length: 42 }, (_, index) => {
+          const day = index - firstDay + 1;
+          if (day < 1 || day > daysInMonth) return <span key={index} />;
+          const dateKey = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+          const hasEvent = events.some(
+            (event) => !event.deleted && !event.completed && eventOccursOn(event, dateKey),
+          );
+          return (
+            <button
+              className={`${dateKey === today ? "today" : ""} ${hasEvent ? "has-event" : ""}`}
+              onClick={openCalendar}
+              key={dateKey}
+              aria-label={`${month + 1}월 ${day}일${hasEvent ? ", 일정 있음" : ""}`}
+            >
+              {day}
+            </button>
+          );
+        })}
+      </div>
+      <button className="home-calendar-manage" onClick={openCalendar}>＋ 일정 추가·관리</button>
+    </section>
+  );
+}
+
 function HomeView({
   go,
   memos,
   events,
   weatherLocation,
-  chargers,
   openVoice,
 }: {
   go: (tab: Tab) => void;
   memos: Memo[];
   events: CalendarEvent[];
   weatherLocation: WeatherLocation;
-  chargers: ChargerFavorite[];
   openVoice: () => void;
 }) {
   const [currentWeather, setCurrentWeather] = useState<GreetingWeather | null>(null);
@@ -795,6 +877,16 @@ function HomeView({
       (event) => !event.deleted && !event.completed && eventOccursOn(event, today),
     )
     .sort((a, b) => a.time.localeCompare(b.time));
+  const weekEvents = events
+    .flatMap((event) => {
+      if (event.deleted || event.completed) return [];
+      const occurrence = nextOccurrence(event);
+      if (!occurrence) return [];
+      const days = daysBetween(today, occurrence);
+      return days >= 1 && days <= 7 ? [{ event, occurrence }] : [];
+    })
+    .sort((a, b) => `${a.occurrence}${a.event.time}`.localeCompare(`${b.occurrence}${b.event.time}`))
+    .slice(0, 5);
   const reminderMessages = events.flatMap((event) => {
     if (event.deleted || event.completed) return [];
     const occurrence = nextOccurrence(event);
@@ -826,9 +918,9 @@ function HomeView({
       </button>
       <HomeWeather
         location={weatherLocation}
-        openDetails={() => go("weather")}
         onCurrentWeather={setCurrentWeather}
       />
+      <HomeCalendar events={events} openCalendar={() => go("calendar")} />
       {reminderMessages.length > 0 && (
         <section className="reminder-messages" aria-label="일정 알림">
           {reminderMessages.map(({ event, days }) => (
@@ -883,6 +975,22 @@ function HomeView({
       </section>
       <section className="section-block">
         <div className="section-title">
+          <h2>이번 주 일정</h2>
+          <button onClick={() => go("calendar")}>전체보기</button>
+        </div>
+        <div className="week-schedule-list">
+          {weekEvents.map(({ event, occurrence }) => (
+            <button onClick={() => go("calendar")} key={`${event.id}-${occurrence}`}>
+              <time>{Number(occurrence.slice(5, 7))}/{Number(occurrence.slice(8, 10))}</time>
+              <div><strong>{event.title}</strong><small>{event.allDay ? "종일" : event.time}</small></div>
+              <span>›</span>
+            </button>
+          ))}
+          {weekEvents.length === 0 && <p className="empty-week">앞으로 7일간 일정이 없어요.</p>}
+        </div>
+      </section>
+      <section className="section-block">
+        <div className="section-title">
           <h2>최근 메모</h2>
           <button onClick={() => go("memo")}>전체보기</button>
         </div>
@@ -901,24 +1009,6 @@ function HomeView({
               아직 메모가 없어요 · 메모 작성
             </button>
           )}
-        </div>
-      </section>
-      <section className="section-block">
-        <div className="section-title">
-          <h2>자주 쓰는 충전소</h2>
-          <button onClick={() => go("charge")}>전체보기</button>
-        </div>
-        <div className="home-charge-strip">
-          {chargers.map((charger) => (
-            <button
-              key={charger.name}
-              onClick={() => openNaverMap(charger.name)}
-            >
-              <span>⚡</span>
-              <strong>{charger.name}</strong>
-              <small>네이버지도에서 확인</small>
-            </button>
-          ))}
         </div>
       </section>
       <section className="shortcut-grid">
@@ -1389,7 +1479,7 @@ function WorkView({
         startY = event.clientY;
         row.setPointerCapture?.(event.pointerId);
         dragSourceId.current = visibleItemsRef.current[sourceIndex].id;
-        dragTargetId.current = visibleItems[sourceIndex].id;
+        dragTargetId.current = visibleItemsRef.current[sourceIndex].id;
         setDraggingId(dragSourceId.current);
         event.preventDefault();
         document.addEventListener("pointermove", move);
@@ -2636,8 +2726,289 @@ function ChargerView({
   );
 }
 
+let leafletPromise: Promise<void> | null = null;
+function loadLeaflet() {
+  if (window.L) return Promise.resolve();
+  if (leafletPromise) return leafletPromise;
+  leafletPromise = new Promise((resolve, reject) => {
+    if (!document.querySelector('link[data-leaflet="true"]')) {
+      const link = document.createElement("link");
+      link.rel = "stylesheet";
+      link.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
+      link.dataset.leaflet = "true";
+      document.head.appendChild(link);
+    }
+    const script = document.createElement("script");
+    script.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
+    script.async = true;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error("map load failed"));
+    document.head.appendChild(script);
+  });
+  return leafletPromise;
+}
+
+let tesseractPromise: Promise<void> | null = null;
+function loadTesseract() {
+  if (window.Tesseract) return Promise.resolve();
+  if (tesseractPromise) return tesseractPromise;
+  tesseractPromise = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js";
+    script.async = true;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error("ocr load failed"));
+    document.head.appendChild(script);
+  });
+  return tesseractPromise;
+}
+
+function likelyRestaurantName(text: string) {
+  const ignored = /(도로명|지번|리뷰|영업|복사|km|지도|검색|SKT|LTE|부산|울산|광역시|남구|중구|진구)/i;
+  return text
+    .split(/\n+/)
+    .map((line) => line.replace(/[^0-9A-Za-z가-힣·&' ]/g, " ").replace(/\s+/g, " ").trim())
+    .filter((line) => line.length >= 2 && line.length <= 24 && !ignored.test(line))
+    .sort((a, b) => b.length - a.length)[0] ?? "";
+}
+
+function RestaurantMapView({
+  restaurants,
+  setRestaurants,
+}: {
+  restaurants: Restaurant[];
+  setRestaurants: React.Dispatch<React.SetStateAction<Restaurant[]>>;
+}) {
+  const mapElement = useRef<HTMLDivElement | null>(null);
+  const mapRef = useRef<LeafletMap | null>(null);
+  const markerLayerRef = useRef<LeafletLayer | null>(null);
+  const fileInput = useRef<HTMLInputElement | null>(null);
+  const [filter, setFilter] = useState<RestaurantCategory>("전체");
+  const [mapReady, setMapReady] = useState(false);
+  const [currentPosition, setCurrentPosition] = useState<[number, number] | null>(null);
+  const [selected, setSelected] = useState<Restaurant | null>(null);
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<PlaceSearchResult[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [ocrStatus, setOcrStatus] = useState("");
+  const [name, setName] = useState("");
+  const [address, setAddress] = useState("");
+  const [latitude, setLatitude] = useState<number | null>(null);
+  const [longitude, setLongitude] = useState<number | null>(null);
+  const [category, setCategory] = useState<Exclude<RestaurantCategory, "전체">>("한식");
+  const [tags, setTags] = useState("");
+  const [memo, setMemo] = useState("");
+  const [visited, setVisited] = useState(false);
+  const visibleRestaurants = filter === "전체"
+    ? restaurants
+    : restaurants.filter((restaurant) => restaurant.category === filter || restaurant.tags.includes(filter));
+
+  useEffect(() => {
+    let cancelled = false;
+    loadLeaflet()
+      .then(() => {
+        if (cancelled || !mapElement.current || !window.L || mapRef.current) return;
+        const map = window.L.map(mapElement.current, { zoomControl: true }).setView([35.576, 129.326], 13);
+        window.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+          attribution: "© OpenStreetMap",
+          maxZoom: 19,
+        }).addTo(map);
+        const layer = window.L.layerGroup().addTo(map);
+        mapRef.current = map;
+        markerLayerRef.current = layer;
+        setMapReady(true);
+        navigator.geolocation?.getCurrentPosition(
+          ({ coords }) => {
+            map.setView([coords.latitude, coords.longitude], 14);
+            setCurrentPosition([coords.latitude, coords.longitude]);
+          },
+          () => undefined,
+          { enableHighAccuracy: true, timeout: 8000 },
+        );
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+      mapRef.current?.remove();
+      mapRef.current = null;
+      markerLayerRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    const leaflet = window.L;
+    const layer = markerLayerRef.current;
+    if (!leaflet || !layer) return;
+    layer.clearLayers();
+    if (currentPosition)
+      leaflet.circleMarker(currentPosition, {
+        radius: 7, color: "#ffffff", fillColor: "#237d68", fillOpacity: 1, weight: 3,
+      }).addTo(layer);
+    const markerRestaurants = filter === "전체"
+      ? restaurants
+      : restaurants.filter((restaurant) => restaurant.category === filter || restaurant.tags.includes(filter));
+    markerRestaurants.forEach((restaurant) => {
+      const icon = leaflet.divIcon({
+        className: "restaurant-pin-wrap",
+        html: `<span class="restaurant-pin">${categoryIcon(restaurant.category)}</span><b>${escapeHtml(restaurant.name)}</b>`,
+        iconSize: [108, 46],
+        iconAnchor: [24, 42],
+      });
+      leaflet.marker([restaurant.latitude, restaurant.longitude], { icon })
+        .addTo(layer)
+        .on("click", () => setSelected(restaurant));
+    });
+  }, [mapReady, restaurants, filter, currentPosition]);
+
+  const locateMe = () => {
+    if (!navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(
+      ({ coords }) => {
+        const position: [number, number] = [coords.latitude, coords.longitude];
+        setCurrentPosition(position);
+        mapRef.current?.setView(position, 15);
+      },
+      () => window.alert("위치 권한을 허용하면 현재 위치로 이동할 수 있어요."),
+      { enableHighAccuracy: true, timeout: 8000 },
+    );
+  };
+  const searchPlace = async (value = query) => {
+    if (!value.trim()) return;
+    setSearching(true);
+    try {
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=jsonv2&countrycodes=kr&limit=8&accept-language=ko&q=${encodeURIComponent(value.trim())}`,
+      );
+      if (!response.ok) throw new Error("search failed");
+      setResults((await response.json()) as PlaceSearchResult[]);
+    } catch {
+      window.alert("장소를 찾지 못했어요. 상호명 뒤에 동네나 주소를 함께 적어보세요.");
+    } finally {
+      setSearching(false);
+    }
+  };
+  const chooseResult = (result: PlaceSearchResult) => {
+    setName(query.trim() || result.display_name.split(",")[0]);
+    setAddress(result.display_name);
+    setLatitude(Number(result.lat));
+    setLongitude(Number(result.lon));
+    setResults([]);
+    mapRef.current?.setView([Number(result.lat), Number(result.lon)], 16);
+  };
+  const resetEditor = () => {
+    setEditingId(null); setQuery(""); setResults([]); setName(""); setAddress("");
+    setLatitude(null); setLongitude(null); setCategory("한식"); setTags(""); setMemo(""); setVisited(false); setOcrStatus("");
+  };
+  const openNew = () => { resetEditor(); setEditorOpen(true); };
+  const openEdit = (restaurant: Restaurant) => {
+    setEditingId(restaurant.id); setQuery(restaurant.name); setName(restaurant.name);
+    setAddress(restaurant.address); setLatitude(restaurant.latitude); setLongitude(restaurant.longitude);
+    setCategory(restaurant.category); setTags(restaurant.tags.join(", ")); setMemo(restaurant.memo);
+    setVisited(restaurant.visited); setResults([]); setOcrStatus(""); setEditorOpen(true);
+  };
+  const saveRestaurant = () => {
+    if (!name.trim() || latitude === null || longitude === null) {
+      window.alert("상호명을 검색한 뒤 정확한 장소를 선택해 주세요.");
+      return;
+    }
+    const value = {
+      name: name.trim(), address, latitude, longitude, category,
+      tags: tags.split(/[,#]/).map((tag) => tag.trim()).filter(Boolean),
+      memo: memo.trim(), visited,
+    };
+    setRestaurants((current) => editingId === null
+      ? [{ id: Date.now(), ...value, createdAt: new Date().toISOString() }, ...current]
+      : current.map((item) => item.id === editingId ? { ...item, ...value } : item));
+    setEditorOpen(false);
+  };
+  const readScreenshot = async (file: File) => {
+    setOcrStatus("사진에서 상호명을 읽는 중이에요…");
+    try {
+      await loadTesseract();
+      const result = await window.Tesseract?.recognize(file, "kor+eng", {
+        logger: (message) => {
+          if (message.status === "recognizing text")
+            setOcrStatus(`글자 인식 ${Math.round((message.progress ?? 0) * 100)}%`);
+        },
+      });
+      const candidate = likelyRestaurantName(result?.data.text ?? "");
+      if (!candidate) throw new Error("no candidate");
+      setQuery(candidate);
+      setName(candidate);
+      setOcrStatus(`‘${candidate}’로 찾았어요. 아래 검색 결과에서 정확한 장소를 선택하세요.`);
+      await searchPlace(candidate);
+    } catch {
+      setOcrStatus("자동 인식이 어려워요. 상호명을 직접 입력해 주세요.");
+    }
+  };
+
+  return (
+    <>
+      <PageHeader title="맛집 지도" action="＋" onAction={openNew} />
+      <section className="restaurant-toolbar">
+        <div className="restaurant-filter" aria-label="음식 종류 필터">
+          {restaurantCategories.map((item) => (
+            <button className={filter === item.id ? "selected" : ""} onClick={() => setFilter(item.id)} key={item.id}>
+              <span>{item.icon}</span><small>{item.id}</small>
+            </button>
+          ))}
+        </div>
+      </section>
+      <section className="restaurant-map-card">
+        <div className="restaurant-map" ref={mapElement} />
+        <button className="locate-me" onClick={locateMe}>◎ 내 위치</button>
+        <button className="restaurant-add-map" onClick={openNew}>＋ 맛집 등록</button>
+      </section>
+      {selected && (
+        <section className="restaurant-selected-card">
+          <div className="restaurant-selected-icon">{categoryIcon(selected.category)}</div>
+          <div><strong>{selected.name}</strong><p>{selected.category}{selected.tags.length ? ` · ${selected.tags.join(" · ")}` : ""}</p><small>{selected.address}</small></div>
+          <button onClick={() => openNaverMap(selected.name)}>지도 열기</button>
+          <button className="plain" onClick={() => openEdit(selected)}>수정</button>
+        </section>
+      )}
+      <section className="restaurant-list section-block">
+        <div className="section-title"><h2>{filter === "전체" ? "저장한 맛집" : `${filter} 맛집`}</h2><span className="count">{visibleRestaurants.length}곳</span></div>
+        {visibleRestaurants.length ? visibleRestaurants.map((restaurant) => (
+          <article key={restaurant.id}>
+            <button className="restaurant-list-main" onClick={() => { setSelected(restaurant); mapRef.current?.setView([restaurant.latitude, restaurant.longitude], 16); }}>
+              <span>{categoryIcon(restaurant.category)}</span>
+              <div><strong>{restaurant.name}</strong><small>{restaurant.visited ? "가본 곳" : "가볼 곳"} · {restaurant.category}</small></div><b>›</b>
+            </button>
+            <button className="restaurant-naver" onClick={() => openNaverMap(restaurant.name)}>네이버지도</button>
+          </article>
+        )) : <div className="empty-memos"><strong>이 종류로 저장한 맛집이 없어요</strong><p>상호명이나 지도 캡처로 추가해 보세요.</p></div>}
+      </section>
+      {editorOpen && (
+        <div className="restaurant-editor-overlay" role="dialog" aria-modal="true" aria-label="맛집 등록">
+          <section className="restaurant-editor">
+            <header><div><p className="eyebrow">내 맛집 지도</p><h2>{editingId === null ? "맛집 등록" : "맛집 수정"}</h2></div><button onClick={() => setEditorOpen(false)}>×</button></header>
+            <div className="restaurant-import-actions">
+              <button onClick={() => fileInput.current?.click()}>▣ 지도 캡처에서 찾기</button>
+              <input ref={fileInput} type="file" accept="image/*" hidden onChange={(event) => { const file = event.target.files?.[0]; if (file) void readScreenshot(file); event.target.value = ""; }} />
+            </div>
+            {ocrStatus && <p className="ocr-status">{ocrStatus}</p>}
+            <label>상호명 또는 주소<div className="restaurant-search-row"><input value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void searchPlace(); }} placeholder="예: 점심엔 한우국밥 울산" autoFocus /><button onClick={() => void searchPlace()} disabled={searching}>{searching ? "검색 중" : "검색"}</button></div></label>
+            {results.length > 0 && <div className="restaurant-search-results">{results.map((result) => <button onClick={() => chooseResult(result)} key={`${result.lat}-${result.lon}`}><strong>{result.display_name.split(",")[0]}</strong><small>{result.display_name}</small></button>)}</div>}
+            {name && <div className="chosen-place"><strong>선택: {name}</strong><small>{address}</small></div>}
+            <label>음식 종류<select value={category} onChange={(event) => setCategory(event.target.value as Exclude<RestaurantCategory, "전체">)}>{restaurantCategories.filter((item) => item.id !== "전체").map((item) => <option key={item.id} value={item.id}>{item.icon} {item.id}</option>)}</select></label>
+            <label>상세 태그<input value={tags} onChange={(event) => setTags(event.target.value)} placeholder="국밥, 짬뽕, 수제버거처럼 쉼표로 구분" /></label>
+            <label>내 메모<textarea value={memo} onChange={(event) => setMemo(event.target.value)} rows={3} placeholder="먹고 싶은 메뉴, 주차 등" /></label>
+            <label className="restaurant-visited"><input type="checkbox" checked={visited} onChange={(event) => setVisited(event.target.checked)} /><span>이미 가본 곳</span></label>
+            <footer>
+              {editingId !== null && <button className="danger" onClick={() => { if (window.confirm("이 맛집을 삭제할까요?")) { setRestaurants((current) => current.filter((item) => item.id !== editingId)); setSelected(null); setEditorOpen(false); } }}>삭제</button>}
+              <button className="cancel" onClick={() => setEditorOpen(false)}>취소</button><button onClick={saveRestaurant}>저장</button>
+            </footer>
+          </section>
+        </div>
+      )}
+    </>
+  );
+}
+
 function MoreView({
-  go,
   exportData,
   exportText,
   importData,
@@ -2646,7 +3017,6 @@ function MoreView({
   events,
   setEvents,
 }: {
-  go: (tab: Tab) => void;
   exportData: () => void;
   exportText: () => void;
   importData: (file: File) => void;
@@ -2664,6 +3034,7 @@ function MoreView({
   const [anniversaryDate, setAnniversaryDate] = useState(localDateKey());
   const [anniversaryType, setAnniversaryType] = useState<"solar" | "lunar">("solar");
   const [anniversaryContent, setAnniversaryContent] = useState("");
+  const [completedNow] = useState(() => Date.now());
   const completedMemos = memos.filter(
     (memo) => memo.completed && !memo.deleted,
   );
@@ -2675,7 +3046,7 @@ function MoreView({
     return Math.max(
       0,
       Math.ceil(
-        (COMPLETED_RETENTION_MS - (Date.now() - Date.parse(completedAt))) /
+        (COMPLETED_RETENTION_MS - (completedNow - Date.parse(completedAt))) /
           (24 * 60 * 60 * 1000),
       ),
     );
@@ -2735,29 +3106,19 @@ function MoreView({
   return (
     <>
       <PageHeader title="더보기" />
-      <section className="feature-list">
-        <button onClick={() => go("weather")}>
-          <span className="feature-icon weather">☀</span>
-          <div>
-            <strong>날씨</strong>
-            <small>여러 예보모델을 비교한 5일 날씨</small>
-          </div>
-          <b>›</b>
-        </button>
-      </section>
       <h2 className="settings-title">데이터 관리</h2>
       <section className="feature-list compact">
         <button onClick={exportData}>
           <span>💾</span>
           <div>
             <strong>전체 데이터 백업</strong>
-            <small>메모·업무·일정을 파일로 안전하게 저장</small>
+            <small>메모·업무·일정·맛집을 파일로 안전하게 저장</small>
           </div>
           <b>↓</b>
         </button>
         <button onClick={exportText}>
           <span>📄</span>
-          <div><strong>텍스트 파일로 내보내기</strong><small>메모·업무·일정을 읽기 쉬운 글로 저장</small></div>
+          <div><strong>텍스트 파일로 내보내기</strong><small>메모·업무·일정·맛집을 읽기 쉬운 글로 저장</small></div>
           <b>↓</b>
         </button>
         <button onClick={() => fileInput.current?.click()}>
@@ -2983,7 +3344,7 @@ export default function Home() {
   const [tab, setTab] = useState<Tab>(() => {
     if (typeof window === "undefined") return "home";
     const saved = window.sessionStorage.getItem("my-assistant-active-tab") as Tab | null;
-    return menuItems.some((item) => item.id === saved) ? saved! : "home";
+    return saved && validTabs.includes(saved) ? saved : "home";
   });
   const tabRef = useRef<Tab>(tab);
   const [voiceOpen, setVoiceOpen] = useState(false);
@@ -2998,6 +3359,7 @@ export default function Home() {
     WeatherLocation[]
   >([defaultWeatherLocation]);
   const [chargers, setChargers] = useState<ChargerFavorite[]>(defaultChargers);
+  const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
   const [storageReady, setStorageReady] = useState(false);
   useEffect(() => {
     tabRef.current = tab;
@@ -3056,6 +3418,7 @@ export default function Home() {
         "my-assistant-saved-weather-locations",
       );
       const savedChargers = window.localStorage.getItem("my-assistant-chargers");
+      const savedRestaurants = window.localStorage.getItem("my-assistant-restaurants");
       try {
         if (savedMemos)
           setMemos(
@@ -3103,6 +3466,11 @@ export default function Home() {
       } catch {
         /* 기본 충전소 유지 */
       }
+      try {
+        if (savedRestaurants) setRestaurants(JSON.parse(savedRestaurants) as Restaurant[]);
+      } catch {
+        /* 빈 맛집 목록 유지 */
+      }
       setStorageReady(true);
     }, 0);
     return () => window.clearTimeout(loadSavedData);
@@ -3143,6 +3511,10 @@ export default function Home() {
     if (storageReady)
       window.localStorage.setItem("my-assistant-chargers", JSON.stringify(chargers));
   }, [chargers, storageReady]);
+  useEffect(() => {
+    if (storageReady)
+      window.localStorage.setItem("my-assistant-restaurants", JSON.stringify(restaurants));
+  }, [restaurants, storageReady]);
   useEffect(() => {
     if (!storageReady) return;
     const purgeExpiredCompleted = () => {
@@ -3232,6 +3604,7 @@ export default function Home() {
       events,
       weatherLocation,
       chargers,
+      restaurants,
     };
     const url = URL.createObjectURL(
       new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" }),
@@ -3243,7 +3616,7 @@ export default function Home() {
     URL.revokeObjectURL(url);
   };
   const exportText = () => {
-    const text = ["나의 비서 기록", "", "[메모]", ...memos.filter(item => !item.deleted).map(item => `- ${item.title}${item.content ? `: ${item.content}` : ""}`), "", "[업무 메모]", ...workItems.filter(item => !item.archived).map(item => `- ${item.completed ? "[완료] " : ""}${item.title}`), "", "[일정]", ...events.filter(item => !item.deleted).map(item => `- ${item.date} ${item.allDay ? "종일" : item.time} | ${item.title}${item.repeatYearly ? " (매년)" : ""}`)].join("\n");
+    const text = ["나의 비서 기록", "", "[메모]", ...memos.filter(item => !item.deleted).map(item => `- ${item.title}${item.content ? `: ${item.content}` : ""}`), "", "[업무 메모]", ...workItems.filter(item => !item.archived).map(item => `- ${item.completed ? "[완료] " : ""}${item.title}`), "", "[일정]", ...events.filter(item => !item.deleted).map(item => `- ${item.date} ${item.allDay ? "종일" : item.time} | ${item.title}${item.repeatYearly ? " (매년)" : ""}`), "", "[맛집]", ...restaurants.map(item => `- ${item.name} | ${item.category} | ${item.address}`)].join("\n");
     const url = URL.createObjectURL(new Blob([text], { type: "text/plain;charset=utf-8" }));
     const link = document.createElement("a"); link.href = url; link.download = `나의비서-기록-${localDateKey()}.txt`; link.click(); URL.revokeObjectURL(url);
   };
@@ -3260,7 +3633,7 @@ export default function Home() {
         throw new Error("invalid backup");
       if (
         !window.confirm(
-          "현재 메모·업무·일정을 백업 파일 내용으로 바꿀까요? 먼저 현재 데이터를 백업해 두는 것을 권장합니다.",
+          "현재 메모·업무·일정·맛집을 백업 파일 내용으로 바꿀까요? 먼저 현재 데이터를 백업해 두는 것을 권장합니다.",
         )
       )
         return;
@@ -3269,6 +3642,7 @@ export default function Home() {
       setEvents(retainRecentCompleted(backup.events.map(normalizeCalendarEvent)));
       if (backup.weatherLocation) setWeatherLocation(backup.weatherLocation);
       if (backup.chargers) setChargers(backup.chargers);
+      if (backup.restaurants) setRestaurants(backup.restaurants);
       window.alert("백업 파일에서 데이터를 복원했습니다.");
     } catch {
       window.alert("이 앱에서 만든 올바른 백업 파일이 아닙니다.");
@@ -3281,7 +3655,6 @@ export default function Home() {
         memos={memos}
         events={events}
         weatherLocation={weatherLocation}
-        chargers={chargers}
         openVoice={openVoiceSheet}
       />
     ),
@@ -3295,9 +3668,9 @@ export default function Home() {
       />
     ),
     charge: <ChargerView chargers={chargers} setChargers={setChargers} />,
+    restaurants: <RestaurantMapView restaurants={restaurants} setRestaurants={setRestaurants} />,
     more: (
       <MoreView
-        go={navigateTab}
         exportData={exportData}
         exportText={exportText}
         importData={importData}
