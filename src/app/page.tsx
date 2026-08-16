@@ -3337,7 +3337,7 @@ function RestaurantMapView({
     setAddress(restaurant.address); setLatitude(restaurant.latitude); setLongitude(restaurant.longitude);
     setCategory(restaurant.category); setTags(restaurant.tags.join(", "));
     setMemo(oldLinkMemo ? "" : restaurant.memo); setMapUrl(restaurant.mapUrl || oldLinkMemo?.[1] || "");
-    setRating(Math.min(5, Math.max(0, Math.round(restaurant.rating ?? 0)))); setVisited(restaurant.visited); setResults([]); setOcrStatus(""); setEditorOpen(true);
+    setRating(Math.min(5, Math.max(0, Math.round((restaurant.rating ?? 0) * 2) / 2))); setVisited(restaurant.visited); setResults([]); setOcrStatus(""); setEditorOpen(true);
   };
   const saveRestaurant = () => {
     if (!name.trim() || latitude === null || longitude === null) {
@@ -3507,7 +3507,7 @@ function RestaurantMapView({
           <div className="restaurant-selected-icon">{categoryIcon(selected.category)}</div>
           <div className="restaurant-selected-details">
             <strong>{selected.name}</strong>
-            <p className="restaurant-selected-rating">{selected.rating ? `${[1, 2, 3, 4, 5].map((score) => score <= (selected.rating ?? 0) ? "★" : "☆").join("")} · ${selected.rating}점` : "☆☆☆☆☆ · 별점 없음"}</p>
+            <p className="restaurant-selected-rating">{selected.rating ? `★ ${selected.rating.toFixed(1)} / 5점` : "☆ 별점 없음"}</p>
             <p>{selected.category}{selected.tags.length ? ` · ${selected.tags.join(" · ")}` : ""}</p>
             <small>{selected.address}</small>
             {selected.memo && <p className="restaurant-selected-memo">📝 {selected.memo}</p>}
@@ -3574,7 +3574,15 @@ function RestaurantMapView({
             {latitude !== null && longitude !== null && <div className="chosen-place-label"><strong>선택한 위치</strong><small>{address}</small></div>}
             <label>음식 종류<select value={category} onChange={(event) => setCategory(event.target.value as Exclude<RestaurantCategory, "전체">)}>{restaurantCategories.filter((item) => item.id !== "전체").map((item) => <option key={item.id} value={item.id}>{item.icon} {item.id}</option>)}</select></label>
             <label>상세 태그<input value={tags} onChange={(event) => setTags(event.target.value)} placeholder="국밥, 짬뽕, 수제버거처럼 쉼표로 구분" /></label>
-            <label>내 별점<div className="restaurant-rating" role="group" aria-label="내 별점">{[1, 2, 3, 4, 5].map((score) => <button type="button" className={score <= rating ? "selected" : ""} aria-label={`${score}점`} aria-pressed={rating === score} onClick={() => setRating((current) => current === score ? 0 : score)} key={score}>★</button>)}</div></label>
+            <label>내 별점<div className="restaurant-rating" role="group" aria-label="내 별점">
+              <button type="button" className="rating-adjust" aria-label="별점 0.5점 내리기" onClick={() => setRating((current) => Math.max(0, current - 0.5))}>−</button>
+              <div className="restaurant-rating-readout" aria-live="polite">
+                <span className="restaurant-rating-stars">{[1, 2, 3, 4, 5].map((score) => <i className={rating >= score ? "full" : rating === score - 0.5 ? "half" : "empty"} key={score}>★</i>)}</span>
+                <strong>{rating ? `${rating.toFixed(1)}점` : "미선택"}</strong>
+              </div>
+              <button type="button" className="rating-adjust" aria-label="별점 0.5점 올리기" onClick={() => setRating((current) => Math.min(5, current + 0.5))}>＋</button>
+              {rating > 0 && <button type="button" className="rating-clear" onClick={() => setRating(0)}>지우기</button>}
+            </div></label>
             <label>내 메모<textarea value={memo} onChange={(event) => setMemo(event.target.value)} rows={3} placeholder="먹고 싶은 메뉴, 주차 등" /></label>
             <label className="restaurant-visited"><input type="checkbox" checked={visited} onChange={(event) => setVisited(event.target.checked)} /><span>이미 가본 곳</span></label>
             <footer>

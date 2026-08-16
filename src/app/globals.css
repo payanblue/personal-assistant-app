@@ -2853,9 +2853,17 @@ h1 {
 .chosen-place { display: grid; gap: 3px; margin-top: 9px; padding: 10px; border-radius: 11px; background: #dfece5; color: #275b45; }
 .restaurant-visited { grid-template-columns: auto 1fr !important; align-items: center; }
 .restaurant-visited input { width: 18px; height: 18px; }
-.restaurant-rating { display: flex; gap: 5px; }
-.restaurant-rating button { padding: 2px; border: 0; background: transparent; color: #c8cfcb; font-size: 26px; line-height: 1; }
-.restaurant-rating button.selected { color: #e0a126; }
+.restaurant-rating { display: grid; grid-template-columns: 42px minmax(0, 1fr) 42px auto; align-items: center; gap: 7px; }
+.restaurant-rating button { border: 0; }
+.restaurant-rating .rating-adjust { height: 42px; border-radius: 11px; background: #e5ede8; color: #2f6f54; font-size: 24px; font-weight: 900; }
+.restaurant-rating-readout { display: grid; justify-items: center; gap: 2px; }
+.restaurant-rating-readout strong { color: #735b28; font-size: 10px; }
+.restaurant-rating-stars { display: flex; gap: 2px; font-size: 23px; line-height: 1; }
+.restaurant-rating-stars i { font-style: normal; }
+.restaurant-rating-stars .full { color: #e0a126; }
+.restaurant-rating-stars .empty { color: #c8cfcb; }
+.restaurant-rating-stars .half { color: transparent; background: linear-gradient(90deg, #e0a126 50%, #c8cfcb 50%); background-clip: text; -webkit-background-clip: text; }
+.restaurant-rating .rating-clear { padding: 7px 8px; border-radius: 8px; background: #eef2ef; color: #6b786f; font-size: 9px; font-weight: 800; }
 .restaurant-editor footer { display: flex; justify-content: flex-end; gap: 7px; margin-top: 16px; }
 .restaurant-editor footer button { padding: 10px 15px; border: 0; border-radius: 11px; background: #2e7155; color: #fff; font-weight: 850; }
 .restaurant-editor footer .cancel { background: #e1e8e4; color: #4d6056; }
