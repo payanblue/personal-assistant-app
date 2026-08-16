@@ -184,6 +184,7 @@ type Memo = {
   category: "개인" | "아이디어" | "생활";
   pinned: boolean;
   deleted: boolean;
+  completed?: boolean;
   createdAt: string;
 };
 
@@ -215,6 +216,7 @@ type CalendarEvent = {
   googleEventId?: string;
   googleEventUrl?: string;
   deleted?: boolean;
+  completed?: boolean;
 };
 
 type BackupPayload = {
@@ -250,6 +252,7 @@ function normalizeCalendarEvent(
     googleEventId: event.googleEventId,
     googleEventUrl: event.googleEventUrl,
     deleted: Boolean(event.deleted),
+    completed: Boolean(event.completed),
   };
 }
 
@@ -1023,6 +1026,7 @@ function MemoView({
           category,
           pinned: false,
           deleted: false,
+          completed: false,
           createdAt: "방금 전",
         },
         ...items,
@@ -1104,7 +1108,10 @@ function MemoView({
       )}
       <section className="card-list">
         {visibleMemos.map((memo) => (
-          <article key={memo.id}>
+          <article
+            className={memo.completed ? "completed-entry" : ""}
+            key={memo.id}
+          >
             <div className="card-top">
               <span
                 className={`tag ${memo.category === "아이디어" ? "idea" : "personal"}`}
@@ -1160,6 +1167,20 @@ function MemoView({
                     }
                   >
                     {memo.pinned ? "★ 고정 해제" : "☆ 중요"}
+                  </button>
+                  <button
+                    className={memo.completed ? "complete-toggle active" : "complete-toggle"}
+                    onClick={() =>
+                      setMemos((items) =>
+                        items.map((item) =>
+                          item.id === memo.id
+                            ? { ...item, completed: !item.completed }
+                            : item,
+                        ),
+                      )
+                    }
+                  >
+                    {memo.completed ? "완료 해제" : "✓ 완료"}
                   </button>
                   <button onClick={() => openEdit(memo)}>수정</button>
                   <button
@@ -1619,7 +1640,7 @@ function CalendarView({
     else
       setEvents((current) => [
         ...current,
-        { id: Date.now(), ...savedEvent, deleted: false },
+        { id: Date.now(), ...savedEvent, deleted: false, completed: false },
       ]);
     const displayDate =
       repeatYearly && calendarType === "lunar"
@@ -2001,7 +2022,7 @@ function CalendarView({
           </footer>
         </section>
       )}
-      {!trash && <section className="section-block month-event-list"><div className="section-title"><h2>이 달의 일정</h2><span className="count">{monthEvents.length}개</span></div>{monthEvents.length ? monthEvents.map(event => { const occurrence = event.repeatYearly ? occurrenceInYear(event, year) : event.date; return <button key={event.id} onClick={() => { if (occurrence) setSelectedDate(occurrence); }}><span>{occurrence?.slice(5).replace("-", ".")}</span><div><strong>{event.title}</strong><small>{event.allDay ? "종일" : event.time}{event.repeatYearly ? " · 매년" : ""}</small></div><b>›</b></button>; }) : <p>이 달에 등록된 일정이 없어요.</p>}</section>}
+      {!trash && <section className="section-block month-event-list"><div className="section-title"><h2>이 달의 일정</h2><span className="count">{monthEvents.length}개</span></div>{monthEvents.length ? monthEvents.map(event => { const occurrence = event.repeatYearly ? occurrenceInYear(event, year) : event.date; return <button className={event.completed ? "completed-entry" : ""} key={event.id} onClick={() => { if (occurrence) setSelectedDate(occurrence); }}><span>{occurrence?.slice(5).replace("-", ".")}</span><div><strong>{event.title}</strong><small>{event.allDay ? "종일" : event.time}{event.repeatYearly ? " · 매년" : ""}</small></div><b>›</b></button>; }) : <p>이 달에 등록된 일정이 없어요.</p>}</section>}
       <section className="section-block calendar-list">
         <div className="section-title">
           <h2>
@@ -2012,7 +2033,10 @@ function CalendarView({
           <span className="count">{selectedEvents.length}개</span>
         </div>
         {selectedEvents.map((event) => (
-          <article className="schedule-card" key={event.id}>
+          <article
+            className={`schedule-card ${event.completed ? "completed-entry" : ""}`}
+            key={event.id}
+          >
             <div className="time">
               <strong>{event.allDay ? "종일" : event.time}</strong>
               {!event.allDay && (
@@ -2085,6 +2109,20 @@ function CalendarView({
                         Google에서 보기
                       </a>
                     )}
+                    <button
+                      className={event.completed ? "complete-toggle active" : "complete-toggle"}
+                      onClick={() =>
+                        setEvents((current) =>
+                          current.map((item) =>
+                            item.id === event.id
+                              ? { ...item, completed: !item.completed }
+                              : item,
+                          ),
+                        )
+                      }
+                    >
+                      {event.completed ? "완료 해제" : "✓ 완료"}
+                    </button>
                     <button onClick={() => openEditEvent(event)}>수정</button>
                     <button onClick={() => moveToTrash(event.id)}>삭제</button>
                   </>
