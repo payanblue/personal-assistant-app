@@ -2710,6 +2710,16 @@ h1 {
   font: inherit;
 }
 .restaurant-import-actions button { width: 100%; padding: 11px; border: 1px dashed #76a18d; border-radius: 12px; background: #edf5f0; color: #2e6c51; font-weight: 850; }
+.share-target-guide {
+  margin: 8px 0 0;
+  padding: 9px 10px;
+  border-radius: 11px;
+  background: #fff6df;
+  color: #685c3d;
+  font-size: 10px;
+  line-height: 1.55;
+}
+.share-target-guide strong { color: #2f6f54; }
 .ocr-status { margin: 8px 0 0; padding: 9px; border-radius: 10px; background: #edf3ef; color: #53675d; font-size: 11px; }
 .restaurant-import-queue {
   display: grid;
