@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import KoreanLunarCalendar from "korean-lunar-calendar";
 
 type Tab = "home" | "memo" | "work" | "calendar" | "restaurants" | "more" | "weather" | "charge";
@@ -317,6 +317,49 @@ function escapeHtml(value: string) {
   return value.replace(/[&<>"']/g, (character) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;",
   })[character] ?? character);
+}
+
+type SharedRestaurantImage = {
+  id?: number;
+  blob: Blob;
+  name: string;
+  type: string;
+  lastModified: number;
+};
+
+function takeSharedRestaurantImages(): Promise<File[]> {
+  return new Promise((resolve, reject) => {
+    const request = window.indexedDB.open("personal-assistant-share-target", 1);
+    request.onupgradeneeded = () => {
+      const database = request.result;
+      if (!database.objectStoreNames.contains("restaurant-images"))
+        database.createObjectStore("restaurant-images", { keyPath: "id", autoIncrement: true });
+    };
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      const database = request.result;
+      const transaction = database.transaction("restaurant-images", "readwrite");
+      const store = transaction.objectStore("restaurant-images");
+      const getRequest = store.getAll();
+      let records: SharedRestaurantImage[] = [];
+      getRequest.onsuccess = () => {
+        records = getRequest.result as SharedRestaurantImage[];
+        store.clear();
+      };
+      transaction.oncomplete = () => {
+        database.close();
+        resolve(records.map((record, index) => new File(
+          [record.blob],
+          record.name || `맛집-공유-${index + 1}.jpg`,
+          { type: record.type || record.blob.type || "image/jpeg", lastModified: record.lastModified || Date.now() },
+        )));
+      };
+      transaction.onerror = () => {
+        database.close();
+        reject(transaction.error);
+      };
+    };
+  });
 }
 
 const sampleEvents: CalendarEvent[] = [];
@@ -2835,14 +2878,19 @@ function likelyRestaurantName(text: string) {
 function RestaurantMapView({
   restaurants,
   setRestaurants,
+  sharedFiles,
+  clearSharedFiles,
 }: {
   restaurants: Restaurant[];
   setRestaurants: React.Dispatch<React.SetStateAction<Restaurant[]>>;
+  sharedFiles: File[];
+  clearSharedFiles: () => void;
 }) {
   const mapElement = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<LeafletMap | null>(null);
   const markerLayerRef = useRef<LeafletLayer | null>(null);
   const fileInput = useRef<HTMLInputElement | null>(null);
+  const handledSharedFiles = useRef<File[] | null>(null);
   const [filter, setFilter] = useState<RestaurantCategory>("전체");
   const [mapReady, setMapReady] = useState(false);
   const [currentPosition, setCurrentPosition] = useState<[number, number] | null>(null);
@@ -2998,7 +3046,7 @@ function RestaurantMapView({
       } else setEditorOpen(false);
     } else setEditorOpen(false);
   };
-  const readScreenshots = async (files: File[]) => {
+  const readScreenshots = useCallback(async (files: File[]) => {
     if (!files.length) return;
     const startedAt = Date.now();
     const queued = files.map((file, index) => ({
@@ -3051,7 +3099,7 @@ function RestaurantMapView({
         : entry));
       setOcrStatus("자동 인식을 불러오지 못했어요. 각 칸에 상호명을 직접 입력할 수 있어요.");
     }
-  };
+  }, []);
   const checkBulkItem = (item: RestaurantImportItem) => {
     if (!item.name.trim()) return;
     resetFields();
@@ -3061,6 +3109,15 @@ function RestaurantMapView({
     setOcrStatus("검색 결과에서 정확한 장소를 선택한 뒤 저장하세요.");
     void searchPlace(item.name.trim());
   };
+
+  useEffect(() => {
+    if (!sharedFiles.length || handledSharedFiles.current === sharedFiles) return;
+    handledSharedFiles.current = sharedFiles;
+    resetFields();
+    setActiveBulkId(null);
+    setEditorOpen(true);
+    void readScreenshots(sharedFiles).finally(clearSharedFiles);
+  }, [sharedFiles, clearSharedFiles, readScreenshots]);
 
   return (
     <>
@@ -3107,6 +3164,10 @@ function RestaurantMapView({
               <button onClick={() => fileInput.current?.click()}>▣ 지도 캡처 여러 장 가져오기</button>
               <input ref={fileInput} type="file" accept="image/*" multiple hidden onChange={(event) => { const files = Array.from(event.target.files ?? []); if (files.length) void readScreenshots(files); event.target.value = ""; }} />
             </div>
+            <p className="share-target-guide">
+              앨범별 선택은 삼성 갤러리의 맛집 앨범에서 사진을 여러 장 고른 뒤
+              <strong> 공유 → 나의 비서</strong>를 누르면 바로 이 보관함으로 들어와요.
+            </p>
             {ocrStatus && <p className="ocr-status">{ocrStatus}</p>}
             {bulkItems.length > 0 && (
               <section className="restaurant-import-queue">
@@ -3499,6 +3560,7 @@ export default function Home() {
   >([defaultWeatherLocation]);
   const [chargers, setChargers] = useState<ChargerFavorite[]>(defaultChargers);
   const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
+  const [sharedRestaurantFiles, setSharedRestaurantFiles] = useState<File[]>([]);
   const [storageReady, setStorageReady] = useState(false);
   useEffect(() => {
     tabRef.current = tab;
@@ -3525,6 +3587,31 @@ export default function Home() {
     };
     window.addEventListener("popstate", handleBack);
     return () => window.removeEventListener("popstate", handleBack);
+  }, []);
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const shareTarget = params.get("share-target");
+    if (!shareTarget) return;
+    const cleanUrl = `${window.location.pathname}${window.location.hash}`;
+    window.history.replaceState({ personalAssistantRoot: true }, "", cleanUrl);
+    if (shareTarget === "error") {
+      window.alert("공유한 사진을 가져오지 못했어요. 갤러리에서 다시 공유해 주세요.");
+      return;
+    }
+    takeSharedRestaurantImages()
+      .then((files) => {
+        if (!files.length) {
+          window.alert("공유된 사진이 없어요. 갤러리에서 이미지 파일을 선택해 주세요.");
+          return;
+        }
+        tabRef.current = "restaurants";
+        setTab("restaurants");
+        setSharedRestaurantFiles(files);
+        window.sessionStorage.setItem("my-assistant-active-tab", "restaurants");
+        window.history.pushState({ personalAssistantTab: "restaurants" }, "", cleanUrl);
+        window.requestAnimationFrame(() => window.scrollTo(0, 0));
+      })
+      .catch(() => window.alert("공유한 사진을 읽지 못했어요. 다시 시도해 주세요."));
   }, []);
   const navigateTab = (nextTab: Tab) => {
     const currentTab = tabRef.current;
@@ -3807,7 +3894,14 @@ export default function Home() {
       />
     ),
     charge: <ChargerView chargers={chargers} setChargers={setChargers} />,
-    restaurants: <RestaurantMapView restaurants={restaurants} setRestaurants={setRestaurants} />,
+    restaurants: (
+      <RestaurantMapView
+        restaurants={restaurants}
+        setRestaurants={setRestaurants}
+        sharedFiles={sharedRestaurantFiles}
+        clearSharedFiles={() => setSharedRestaurantFiles([])}
+      />
+    ),
     more: (
       <MoreView
         exportData={exportData}
