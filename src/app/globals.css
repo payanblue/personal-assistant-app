@@ -516,6 +516,10 @@ h1 {
   color: var(--muted);
   font-size: 11px;
 }
+.weekdays span:first-child,
+.home-calendar-weekdays span:first-child {
+  color: #d64a4a;
+}
 .days button {
   aspect-ratio: 1;
   border: 0;
@@ -1387,6 +1391,20 @@ h1 {
 }
 .days button.today small {
   color: #e8f1eb;
+}
+.days button.holiday > span,
+.days button .holiday-name {
+  color: #d64a4a;
+  font-weight: 800;
+}
+.days button .holiday-name {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.days button.today.holiday > span,
+.days button.today .holiday-name {
+  color: #fff;
 }
 .days button.has-event::after {
   bottom: 1px;
@@ -2499,6 +2517,13 @@ h1 {
   background: #286d55;
   color: #fff;
   font-weight: 900;
+}
+.home-calendar-days > button.holiday {
+  color: #d64a4a;
+  font-weight: 800;
+}
+.home-calendar-days > button.today.holiday {
+  color: #fff;
 }
 .home-calendar-days > button.has-event::after {
   content: "";
