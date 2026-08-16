@@ -2956,20 +2956,29 @@ type RestaurantImportItem = {
 };
 
 function likelyRestaurantName(text: string) {
-  const ignored = /(도로명|지번|리뷰|영업|복사|km|지도|검색|SKT|LTE|부산|울산|광역시|남구|중구|진구|주차장|아파트|은행|호텔|공원)/i;
+  const foodWords = /(식당|식탁|국밥|짬뽕|버거|마루|카페|커피|횟집|고기|냉면|치킨|분식|초밥|수제|한우|국수|우동|돈까스|돈가스|갈비|곱창|족발|보쌈|김밥|떡볶이|제과|베이커리)/;
+  const ignored = /(도로명|지번|리뷰|영업|복사|km|지도|검색|SKT|LTE|광역시|남구|중구|진구)/i;
+  const mapBackground = /(대학교|대학원|과학관|공학관|교육관|문화회관|학생회관|아파트|주차장|은행|호텔|어린이집|학교|초등|중등|고등|GS25|CU|세븐일레븐)/i;
   const lines = text
     .split(/\n+/)
     .map((line) => line.replace(/[^0-9A-Za-z가-힣·&' ]/g, " ").replace(/\s+/g, " ").trim())
-    .filter((line) => line.length >= 2 && line.length <= 28 && !ignored.test(line));
+    .map((line) => foodWords.test(line) ? line.replace(/(\S{3,})\s+[가-힣A-Za-z]$/, "$1") : line)
+    .filter((line) => line.length >= 2 && line.length <= 28 && (!ignored.test(line) || foodWords.test(line)));
   const frequency = new Map<string, number>();
   lines.forEach((line) => frequency.set(line, (frequency.get(line) ?? 0) + 1));
   return lines
-    .map((line) => {
+    .map((line, index) => {
       const hangul = (line.match(/[가-힣]/g) ?? []).length;
       const latin = (line.match(/[A-Za-z]/g) ?? []).length;
-      const foodBonus = /(식당|국밥|짬뽕|버거|마루|카페|커피|횟집|고기|냉면|치킨|분식|초밥|수제|한우)/.test(line) ? 16 : 0;
-      const repeatBonus = ((frequency.get(line) ?? 1) - 1) * 18;
-      return { line, score: hangul * 5 - latin * 2 + foodBonus + repeatBonus };
+      const foodBonus = foodWords.test(line) ? 100 : 0;
+      const repeatBonus = ((frequency.get(line) ?? 1) - 1) * 30;
+      const titleBonus = index < 7 ? 28 : 0;
+      const backgroundPenalty = mapBackground.test(line) ? 100 : 0;
+      const longLinePenalty = Math.max(0, line.length - 16) * 3;
+      return {
+        line,
+        score: Math.min(hangul, 12) * 3 - latin * 2 + foodBonus + repeatBonus + titleBonus - backgroundPenalty - longLinePenalty,
+      };
     })
     .filter((item) => (item.line.match(/[가-힣]/g) ?? []).length >= 2)
     .sort((a, b) => b.score - a.score || a.line.length - b.line.length)[0]?.line ?? "";
