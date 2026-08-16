@@ -296,6 +296,7 @@ type Restaurant = {
   category: Exclude<RestaurantCategory, "전체">;
   tags: string[];
   memo: string;
+  mapUrl?: string;
   visited: boolean;
   createdAt: string;
 };
@@ -705,6 +706,14 @@ function openNaverMap(address: string) {
     "_blank",
     "noopener,noreferrer",
   );
+}
+
+function openRestaurantMap(restaurant: Restaurant) {
+  if (/^https:\/\/(naver\.me|map\.naver\.com)\//i.test(restaurant.mapUrl ?? "")) {
+    window.open(restaurant.mapUrl, "_blank", "noopener,noreferrer");
+    return;
+  }
+  openNaverMap(restaurant.name);
 }
 
 function analyzeVoiceText(text: string) {
@@ -3114,6 +3123,7 @@ function RestaurantMapView({
   const [category, setCategory] = useState<Exclude<RestaurantCategory, "전체">>("한식");
   const [tags, setTags] = useState("");
   const [memo, setMemo] = useState("");
+  const [mapUrl, setMapUrl] = useState("");
   const [visited, setVisited] = useState(false);
   const visibleRestaurants = filter === "전체"
     ? restaurants
@@ -3315,13 +3325,15 @@ function RestaurantMapView({
   };
   const resetFields = () => {
     setEditingId(null); setQuery(""); setResults([]); setSearchMessage(""); setName(""); setAddress("");
-    setLatitude(null); setLongitude(null); setCategory("한식"); setTags(""); setMemo(""); setVisited(false); setOcrStatus("");
+    setLatitude(null); setLongitude(null); setCategory("한식"); setTags(""); setMemo(""); setMapUrl(""); setVisited(false); setOcrStatus("");
   };
   const openNew = () => { resetFields(); setActiveBulkId(null); setEditorOpen(true); };
   const openEdit = (restaurant: Restaurant) => {
+    const oldLinkMemo = restaurant.memo.match(/^지도 공유 링크:\s*(https:\/\/\S+)\s*$/);
     setEditingId(restaurant.id); setQuery(restaurant.name); setName(restaurant.name);
     setAddress(restaurant.address); setLatitude(restaurant.latitude); setLongitude(restaurant.longitude);
-    setCategory(restaurant.category); setTags(restaurant.tags.join(", ")); setMemo(restaurant.memo);
+    setCategory(restaurant.category); setTags(restaurant.tags.join(", "));
+    setMemo(oldLinkMemo ? "" : restaurant.memo); setMapUrl(restaurant.mapUrl || oldLinkMemo?.[1] || "");
     setVisited(restaurant.visited); setResults([]); setOcrStatus(""); setEditorOpen(true);
   };
   const saveRestaurant = () => {
@@ -3332,7 +3344,7 @@ function RestaurantMapView({
     const value = {
       name: name.trim(), address, latitude, longitude, category,
       tags: tags.split(/[,#]/).map((tag) => tag.trim()).filter(Boolean),
-      memo: memo.trim(), visited,
+      memo: memo.trim(), mapUrl: mapUrl || undefined, visited,
     };
     setRestaurants((current) => editingId === null
       ? [{ id: Date.now(), ...value, createdAt: new Date().toISOString() }, ...current]
@@ -3432,7 +3444,7 @@ function RestaurantMapView({
     setName(parsed.name);
     setQuery(parsed.name || parsed.address);
     setAddress(parsed.address);
-    setMemo(parsed.url ? `지도 공유 링크: ${parsed.url}` : "");
+    setMapUrl(parsed.url);
     setOcrStatus("지도 공유 링크에서 상호명과 정확한 위치를 확인하고 있어요…");
     void resolveSharedMapPlace(parsed.url).then((resolved) => {
       if (cancelled) return;
@@ -3489,7 +3501,7 @@ function RestaurantMapView({
         <section className="restaurant-selected-card">
           <div className="restaurant-selected-icon">{categoryIcon(selected.category)}</div>
           <div><strong>{selected.name}</strong><p>{selected.category}{selected.tags.length ? ` · ${selected.tags.join(" · ")}` : ""}</p><small>{selected.address}</small></div>
-          <button onClick={() => openNaverMap(selected.name)}>지도 열기</button>
+          <button onClick={() => openRestaurantMap(selected)}>지도 열기</button>
           <button className="plain" onClick={() => openEdit(selected)}>수정</button>
         </section>
       )}
@@ -3501,7 +3513,7 @@ function RestaurantMapView({
               <span>{categoryIcon(restaurant.category)}</span>
               <div><strong>{restaurant.name}</strong><small>{restaurant.visited ? "가본 곳" : "가볼 곳"} · {restaurant.category}</small></div><b>›</b>
             </button>
-            <button className="restaurant-naver" onClick={() => openNaverMap(restaurant.name)}>네이버지도</button>
+            <button className="restaurant-naver" onClick={() => openRestaurantMap(restaurant)}>네이버지도</button>
           </article>
         )) : <div className="empty-memos"><strong>이 종류로 저장한 맛집이 없어요</strong><p>상호명이나 지도 캡처로 추가해 보세요.</p></div>}
       </section>
