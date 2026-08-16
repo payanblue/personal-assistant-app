@@ -337,6 +337,13 @@ type SharedRestaurantPlace = {
   url: string;
 };
 
+type ResolvedMapPlace = {
+  name: string;
+  address: string;
+  latitude: number | null;
+  longitude: number | null;
+};
+
 function takeSharedRestaurantContent(): Promise<{ files: File[]; place: SharedRestaurantPlace | null }> {
   return new Promise((resolve, reject) => {
     const request = window.indexedDB.open("personal-assistant-share-target", 2);
@@ -3010,11 +3017,26 @@ function parseSharedRestaurantPlace(place: SharedRestaurantPlace) {
   const name = lines.find((line) =>
     line.length >= 2 &&
     line.length <= 50 &&
-    !/^(네이버\s*지도|네이버맵|카카오맵|KakaoMap|장소 공유)$/i.test(line) &&
+    !/^(\[|【)?\s*(네이버\s*지도|네이버맵|카카오맵|KakaoMap|장소 공유)\s*(\]|】)?$/i.test(line) &&
     line !== addressLine &&
     !/^(도로명|지번|주소)\s*/.test(line)
   ) ?? "";
   return { name, address: addressLine || likelyRestaurantAddress(combined), url };
+}
+
+async function resolveSharedMapPlace(url: string): Promise<ResolvedMapPlace | null> {
+  if (!/^https:\/\/(naver\.me|map\.naver\.com)\//i.test(url)) return null;
+  try {
+    const response = await fetch(`${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/api/resolve-map-share`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url }),
+    });
+    if (!response.ok) return null;
+    return await response.json() as ResolvedMapPlace;
+  } catch {
+    return null;
+  }
 }
 
 function likelyRestaurantName(text: string) {
@@ -3403,6 +3425,7 @@ function RestaurantMapView({
   useEffect(() => {
     if (!sharedPlace) return;
     const parsed = parseSharedRestaurantPlace(sharedPlace);
+    let cancelled = false;
     resetFields();
     setActiveBulkId(null);
     setEditorOpen(true);
@@ -3410,12 +3433,31 @@ function RestaurantMapView({
     setQuery(parsed.name || parsed.address);
     setAddress(parsed.address);
     setMemo(parsed.url ? `지도 공유 링크: ${parsed.url}` : "");
-    setOcrStatus(parsed.name
-      ? "지도에서 공유한 장소예요. 상호명과 주소를 확인하고 위치를 선택해 주세요."
-      : "공유된 장소 이름을 확인하고 위치를 선택해 주세요.");
-    if (parsed.address) void searchPlace(parsed.address);
-    else if (parsed.name) void searchPlace(parsed.name);
-    clearSharedPlace();
+    setOcrStatus("지도 공유 링크에서 상호명과 정확한 위치를 확인하고 있어요…");
+    void resolveSharedMapPlace(parsed.url).then((resolved) => {
+      if (cancelled) return;
+      const resolvedName = resolved?.name || parsed.name;
+      const resolvedAddress = resolved?.address || parsed.address;
+      setName(resolvedName);
+      setQuery(resolvedAddress || resolvedName);
+      setAddress(resolvedAddress);
+      if (resolved?.latitude !== null && resolved?.latitude !== undefined &&
+          resolved.longitude !== null && resolved.longitude !== undefined) {
+        setLatitude(resolved.latitude);
+        setLongitude(resolved.longitude);
+        mapRef.current?.setView([resolved.latitude, resolved.longitude], 17);
+        setSearchMessage("네이버지도에서 정확한 장소를 가져왔어요.");
+        setOcrStatus("상호명·주소·정확한 위치를 가져왔어요. 음식 종류를 확인하고 저장하세요.");
+      } else {
+        setOcrStatus(resolvedName
+          ? "지도에서 공유한 장소예요. 검색 결과에서 위치를 선택해 주세요."
+          : "공유된 장소 이름을 확인하고 위치를 선택해 주세요.");
+        if (resolvedAddress) void searchPlace(resolvedAddress);
+        else if (resolvedName) void searchPlace(resolvedName);
+      }
+      clearSharedPlace();
+    });
+    return () => { cancelled = true; };
   }, [sharedPlace, clearSharedPlace]);
 
   return (
