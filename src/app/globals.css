@@ -258,7 +258,7 @@ h1 {
   inset: auto 0 0;
   height: 80px;
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   border-top: 1px solid #bdcac2;
   background: color-mix(in srgb, var(--nav-background) 94%, transparent);
   backdrop-filter: blur(12px);
@@ -2415,4 +2415,319 @@ h1 {
   color: white;
   font-size: 10px;
   font-weight: 800;
+}
+
+/* Calendar-first home and lightweight weather */
+.home-weather-compact {
+  margin: 10px 18px 14px;
+  padding: 0;
+  overflow: hidden;
+}
+.home-weather-compact .home-weather-current {
+  min-height: 92px;
+  padding: 14px 16px 8px;
+  cursor: default;
+}
+.home-weather-compact .home-weather-current div > strong { font-size: 34px; }
+.home-weather-compact .home-weather-current > b { font-size: 42px; }
+.compact-weather-facts {
+  display: flex;
+  gap: 7px;
+  overflow-x: auto;
+  padding: 0 14px 13px;
+  scrollbar-width: none;
+}
+.compact-weather-facts::-webkit-scrollbar { display: none; }
+.compact-weather-facts span {
+  flex: 0 0 auto;
+  padding: 6px 9px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.56);
+  color: #3d5850;
+  font-size: 11px;
+  font-weight: 750;
+}
+.home-calendar {
+  margin: 0 18px 16px;
+  padding: 15px;
+  border: 1px solid rgba(62, 94, 78, .14);
+  border-radius: 22px;
+  background: rgba(250, 253, 250, .9);
+  box-shadow: 0 8px 22px rgba(41, 72, 57, .07);
+}
+.home-calendar > header {
+  display: grid;
+  grid-template-columns: 38px 1fr 38px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.home-calendar > header strong { text-align: center; font-size: 18px; }
+.home-calendar > header button {
+  height: 34px;
+  border: 0;
+  border-radius: 11px;
+  background: #e8f0eb;
+  color: #315e4b;
+  font-size: 24px;
+}
+.home-calendar-weekdays,
+.home-calendar-days {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  text-align: center;
+}
+.home-calendar-weekdays span {
+  padding: 4px 0 7px;
+  color: #7b8c82;
+  font-size: 10px;
+  font-weight: 800;
+}
+.home-calendar-days > button,
+.home-calendar-days > span {
+  position: relative;
+  min-width: 0;
+  height: 36px;
+}
+.home-calendar-days > button {
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: #263b31;
+  font-size: 12px;
+}
+.home-calendar-days > button.today {
+  background: #286d55;
+  color: #fff;
+  font-weight: 900;
+}
+.home-calendar-days > button.has-event::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: 3px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #ef8b63;
+  transform: translateX(-50%);
+}
+.home-calendar-days > button.today.has-event::after { background: #fff; }
+.home-calendar-manage {
+  width: 100%;
+  margin-top: 9px;
+  padding: 10px;
+  border: 1px dashed #82a898;
+  border-radius: 12px;
+  background: #f5faf7;
+  color: #2d6e53;
+  font-weight: 850;
+}
+.week-schedule-list { display: grid; gap: 8px; }
+.week-schedule-list > button {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 11px 12px;
+  border: 1px solid #d8e1dc;
+  border-radius: 14px;
+  background: #f8faf8;
+  text-align: left;
+}
+.week-schedule-list time { color: #37715a; font-size: 12px; font-weight: 900; }
+.week-schedule-list div { display: grid; gap: 2px; min-width: 0; }
+.week-schedule-list strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.week-schedule-list small, .empty-week { color: #78867f; font-size: 11px; }
+.empty-week { margin: 0; padding: 12px; text-align: center; }
+
+/* Personal restaurant map */
+.restaurant-toolbar { margin: 0 0 10px; }
+.restaurant-filter {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 0 18px 5px;
+  scrollbar-width: none;
+}
+.restaurant-filter::-webkit-scrollbar { display: none; }
+.restaurant-filter button {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  gap: 2px;
+  min-width: 58px;
+  padding: 8px 7px;
+  border: 1px solid #d5dfd9;
+  border-radius: 15px;
+  background: #f7faf8;
+  color: #5e6e65;
+}
+.restaurant-filter button span { font-size: 20px; }
+.restaurant-filter button small { font-size: 9px; font-weight: 800; }
+.restaurant-filter button.selected {
+  border-color: #2f7658;
+  background: #dcebe3;
+  color: #225d45;
+  box-shadow: 0 4px 12px rgba(38, 102, 76, .13);
+}
+.restaurant-map-card {
+  position: relative;
+  margin: 0 18px 16px;
+  overflow: hidden;
+  border: 1px solid #cbd8d1;
+  border-radius: 22px;
+  background: #dce8e1;
+  box-shadow: 0 10px 24px rgba(41, 68, 54, .09);
+}
+.restaurant-map { width: 100%; height: 360px; z-index: 0; }
+.locate-me,
+.restaurant-add-map {
+  position: absolute;
+  z-index: 500;
+  bottom: 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(35, 74, 56, .18);
+  border-radius: 13px;
+  background: rgba(255,255,255,.94);
+  color: #275f49;
+  box-shadow: 0 4px 14px rgba(27, 48, 37, .16);
+  font-size: 11px;
+  font-weight: 900;
+}
+.locate-me { left: 12px; }
+.restaurant-add-map { right: 12px; background: #286f54; color: #fff; }
+.restaurant-pin-wrap { background: transparent !important; border: 0 !important; }
+.restaurant-pin-wrap .restaurant-pin {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border: 3px solid #fff;
+  border-radius: 50% 50% 50% 8px;
+  background: #2f7759;
+  box-shadow: 0 3px 9px rgba(0,0,0,.25);
+  font-size: 20px;
+  transform: rotate(-45deg);
+}
+.restaurant-pin-wrap .restaurant-pin::first-letter { transform: rotate(45deg); }
+.restaurant-pin-wrap b {
+  position: absolute;
+  left: 43px;
+  top: 8px;
+  max-width: 76px;
+  overflow: hidden;
+  padding: 4px 6px;
+  border-radius: 7px;
+  background: rgba(255,255,255,.94);
+  color: #1f3329;
+  box-shadow: 0 2px 7px rgba(0,0,0,.15);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.restaurant-selected-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  margin: -4px 18px 16px;
+  padding: 13px;
+  border: 1px solid #cad8d0;
+  border-radius: 18px;
+  background: #f8fbf9;
+}
+.restaurant-selected-icon { font-size: 28px; }
+.restaurant-selected-card > div:nth-child(2) { display: grid; min-width: 0; gap: 2px; }
+.restaurant-selected-card strong { overflow-wrap: anywhere; font-size: 14px; }
+.restaurant-selected-card p, .restaurant-selected-card small { margin: 0; color: #718077; font-size: 10px; }
+.restaurant-selected-card button,
+.restaurant-naver {
+  padding: 8px 9px;
+  border: 0;
+  border-radius: 10px;
+  background: #2e7356;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 850;
+}
+.restaurant-selected-card button.plain { grid-column: 3; background: #e5ece8; color: #486055; }
+.restaurant-list > article {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding: 9px 0;
+  border-bottom: 1px solid #e2e8e4;
+}
+.restaurant-list > article:last-child { border-bottom: 0; }
+.restaurant-list-main {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+}
+.restaurant-list-main > span { font-size: 25px; }
+.restaurant-list-main > div { display: grid; min-width: 0; gap: 3px; }
+.restaurant-list-main strong { overflow: hidden; color: #263c31; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.restaurant-list-main small { color: #75837b; font-size: 10px; }
+.restaurant-editor-overlay {
+  position: fixed;
+  z-index: 2000;
+  inset: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  overflow-y: auto;
+  padding: max(22px, env(safe-area-inset-top)) 12px 90px;
+  background: rgba(22, 35, 29, .48);
+}
+.restaurant-editor {
+  width: min(100%, 520px);
+  padding: 18px;
+  border-radius: 22px;
+  background: #f8faf8;
+  box-shadow: 0 18px 50px rgba(0,0,0,.24);
+}
+.restaurant-editor > header { display: flex; align-items: flex-start; justify-content: space-between; }
+.restaurant-editor h2 { margin: 2px 0 12px; font-size: 22px; }
+.restaurant-editor > header > button { width: 36px; height: 36px; border: 0; border-radius: 12px; background: #e4ebe7; font-size: 22px; }
+.restaurant-editor label { display: grid; gap: 6px; margin-top: 12px; color: #506058; font-size: 11px; font-weight: 800; }
+.restaurant-editor input,
+.restaurant-editor select,
+.restaurant-editor textarea {
+  width: 100%;
+  min-width: 0;
+  padding: 11px;
+  border: 1px solid #cad6cf;
+  border-radius: 11px;
+  background: #fff;
+  color: #24372e;
+  font: inherit;
+}
+.restaurant-import-actions button { width: 100%; padding: 11px; border: 1px dashed #76a18d; border-radius: 12px; background: #edf5f0; color: #2e6c51; font-weight: 850; }
+.ocr-status { margin: 8px 0 0; padding: 9px; border-radius: 10px; background: #edf3ef; color: #53675d; font-size: 11px; }
+.restaurant-search-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px; }
+.restaurant-search-row button { padding: 0 13px; border: 0; border-radius: 11px; background: #2f7357; color: #fff; font-weight: 850; }
+.restaurant-search-results { display: grid; gap: 5px; max-height: 170px; overflow-y: auto; margin-top: 7px; }
+.restaurant-search-results button { display: grid; gap: 2px; padding: 10px; border: 1px solid #d5ded9; border-radius: 10px; background: #fff; text-align: left; }
+.restaurant-search-results small, .chosen-place small { overflow-wrap: anywhere; color: #748279; font-size: 9px; }
+.chosen-place { display: grid; gap: 3px; margin-top: 9px; padding: 10px; border-radius: 11px; background: #dfece5; color: #275b45; }
+.restaurant-visited { grid-template-columns: auto 1fr !important; align-items: center; }
+.restaurant-visited input { width: 18px; height: 18px; }
+.restaurant-editor footer { display: flex; justify-content: flex-end; gap: 7px; margin-top: 16px; }
+.restaurant-editor footer button { padding: 10px 15px; border: 0; border-radius: 11px; background: #2e7155; color: #fff; font-weight: 850; }
+.restaurant-editor footer .cancel { background: #e1e8e4; color: #4d6056; }
+.restaurant-editor footer .danger { margin-right: auto; background: #f7deda; color: #9c4138; }
+
+@media (max-width: 380px) {
+  .restaurant-map { height: 320px; }
+  .restaurant-selected-card { grid-template-columns: auto minmax(0, 1fr); }
+  .restaurant-selected-card button { grid-column: auto; }
+  .restaurant-selected-card button.plain { grid-column: auto; }
+  .home-calendar-days > button, .home-calendar-days > span { height: 33px; }
 }
