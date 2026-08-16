@@ -185,6 +185,7 @@ type Memo = {
   pinned: boolean;
   deleted: boolean;
   completed?: boolean;
+  completedAt?: string;
   createdAt: string;
 };
 
@@ -217,6 +218,7 @@ type CalendarEvent = {
   googleEventUrl?: string;
   deleted?: boolean;
   completed?: boolean;
+  completedAt?: string;
 };
 
 type BackupPayload = {
@@ -232,6 +234,24 @@ type BackupPayload = {
 };
 
 const sampleEvents: CalendarEvent[] = [];
+const COMPLETED_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+
+function retainRecentCompleted<T extends { completed?: boolean; completedAt?: string }>(
+  items: T[],
+): T[] {
+  const now = Date.now();
+  const nowIso = new Date(now).toISOString();
+  return items
+    .map((item) =>
+      item.completed && !item.completedAt ? { ...item, completedAt: nowIso } : item,
+    )
+    .filter(
+      (item) =>
+        !item.completed ||
+        !item.completedAt ||
+        now - Date.parse(item.completedAt) < COMPLETED_RETENTION_MS,
+    );
+}
 
 function normalizeCalendarEvent(
   event: CalendarEvent & { duration?: string; category?: string },
@@ -253,6 +273,7 @@ function normalizeCalendarEvent(
     googleEventUrl: event.googleEventUrl,
     deleted: Boolean(event.deleted),
     completed: Boolean(event.completed),
+    completedAt: event.completedAt,
   };
 }
 
@@ -764,14 +785,18 @@ function HomeView({
   openVoice: () => void;
 }) {
   const [currentWeather, setCurrentWeather] = useState<GreetingWeather | null>(null);
-  const recentMemos = memos.filter((memo) => !memo.deleted).slice(0, 2);
+  const recentMemos = memos
+    .filter((memo) => !memo.deleted && !memo.completed)
+    .slice(0, 2);
   const greeting = weatherGreeting(currentWeather);
   const today = localDateKey();
   const todayEvents = events
-    .filter((event) => !event.deleted && eventOccursOn(event, today))
+    .filter(
+      (event) => !event.deleted && !event.completed && eventOccursOn(event, today),
+    )
     .sort((a, b) => a.time.localeCompare(b.time));
   const reminderMessages = events.flatMap((event) => {
-    if (event.deleted) return [];
+    if (event.deleted || event.completed) return [];
     const occurrence = nextOccurrence(event);
     if (!occurrence) return [];
     const days = daysBetween(today, occurrence);
@@ -1034,7 +1059,9 @@ function MemoView({
     setWriting(false);
   };
   const visibleMemos = memos
-    .filter((memo) => (filter === "trash" ? memo.deleted : !memo.deleted))
+    .filter((memo) =>
+      filter === "trash" ? memo.deleted : !memo.deleted && !memo.completed,
+    )
     .filter((memo) => filter !== "pinned" || memo.pinned)
     .filter((memo) =>
       `${memo.title} ${memo.content}`
@@ -1174,7 +1201,13 @@ function MemoView({
                       setMemos((items) =>
                         items.map((item) =>
                           item.id === memo.id
-                            ? { ...item, completed: !item.completed }
+                            ? {
+                                ...item,
+                                completed: !item.completed,
+                                completedAt: item.completed
+                                  ? undefined
+                                  : new Date().toISOString(),
+                              }
                             : item,
                         ),
                       )
@@ -1573,7 +1606,9 @@ function CalendarView({
     .filter((event) =>
       trash
         ? event.deleted
-        : !event.deleted && eventOccursOn(event, selectedDate),
+        : !event.deleted &&
+          !event.completed &&
+          eventOccursOn(event, selectedDate),
     )
     .sort(
       (a, b) =>
@@ -1581,7 +1616,7 @@ function CalendarView({
         a.time.localeCompare(b.time),
     );
   const monthEvents = events.filter(event => {
-    if (event.deleted) return false;
+    if (event.deleted || event.completed) return false;
     const occurrence = event.repeatYearly ? occurrenceInYear(event, year) : event.date;
     return occurrence?.startsWith(`${year}-${String(month + 1).padStart(2, "0")}`);
   }).sort((a, b) => (a.repeatYearly ? occurrenceInYear(a, year) ?? "" : a.date).localeCompare(b.repeatYearly ? occurrenceInYear(b, year) ?? "" : b.date) || a.time.localeCompare(b.time));
@@ -1864,7 +1899,10 @@ function CalendarView({
               if (day < 1 || day > daysInMonth) return <span key={index} />;
               const key = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
               const hasEvent = events.some(
-                (event) => !event.deleted && eventOccursOn(event, key),
+                (event) =>
+                  !event.deleted &&
+                  !event.completed &&
+                  eventOccursOn(event, key),
               );
               const lunar = solarToLunar(key);
               const showLunar = day === 1 || day % 5 === 0;
@@ -2115,7 +2153,13 @@ function CalendarView({
                         setEvents((current) =>
                           current.map((item) =>
                             item.id === event.id
-                              ? { ...item, completed: !item.completed }
+                              ? {
+                                  ...item,
+                                  completed: !item.completed,
+                                  completedAt: item.completed
+                                    ? undefined
+                                    : new Date().toISOString(),
+                                }
                               : item,
                           ),
                         )
@@ -2597,6 +2641,8 @@ function MoreView({
   exportData,
   exportText,
   importData,
+  memos,
+  setMemos,
   events,
   setEvents,
 }: {
@@ -2604,19 +2650,40 @@ function MoreView({
   exportData: () => void;
   exportText: () => void;
   importData: (file: File) => void;
+  memos: Memo[];
+  setMemos: React.Dispatch<React.SetStateAction<Memo[]>>;
   events: CalendarEvent[];
   setEvents: React.Dispatch<React.SetStateAction<CalendarEvent[]>>;
 }) {
   const fileInput = useRef<HTMLInputElement | null>(null);
   const [anniversaryOpen, setAnniversaryOpen] = useState(false);
+  const [completedTrashOpen, setCompletedTrashOpen] = useState(false);
   const [anniversaryEditor, setAnniversaryEditor] = useState(false);
   const [editingAnniversaryId, setEditingAnniversaryId] = useState<number | null>(null);
   const [anniversaryTitle, setAnniversaryTitle] = useState("");
   const [anniversaryDate, setAnniversaryDate] = useState(localDateKey());
   const [anniversaryType, setAnniversaryType] = useState<"solar" | "lunar">("solar");
   const [anniversaryContent, setAnniversaryContent] = useState("");
+  const completedMemos = memos.filter(
+    (memo) => memo.completed && !memo.deleted,
+  );
+  const completedEvents = events.filter(
+    (event) => event.completed && !event.deleted,
+  );
+  const daysRemaining = (completedAt?: string) => {
+    if (!completedAt) return 30;
+    return Math.max(
+      0,
+      Math.ceil(
+        (COMPLETED_RETENTION_MS - (Date.now() - Date.parse(completedAt))) /
+          (24 * 60 * 60 * 1000),
+      ),
+    );
+  };
   const anniversaries = events
-    .filter((event) => !event.deleted && event.repeatYearly)
+    .filter(
+      (event) => !event.deleted && !event.completed && event.repeatYearly,
+    )
     .sort((a, b) =>
       (nextOccurrence(a) ?? "9999-12-31").localeCompare(
         nextOccurrence(b) ?? "9999-12-31",
@@ -2720,6 +2787,14 @@ function MoreView({
           <div>
             <strong>기념일 · 생일 관리</strong>
             <small>등록 · 수정 · 삭제</small>
+          </div>
+          <b>›</b>
+        </button>
+        <button onClick={() => setCompletedTrashOpen((open) => !open)}>
+          <span>✓</span>
+          <div>
+            <strong>완료 휴지통</strong>
+            <small>완료한 메모·일정 · 30일 보관</small>
           </div>
           <b>›</b>
         </button>
@@ -2827,6 +2902,72 @@ function MoreView({
           )}
         </section>
       )}
+      {completedTrashOpen && (
+        <section className="section-block completed-trash">
+          <div className="section-title">
+            <div>
+              <h2>완료 휴지통</h2>
+              <small>완료 후 30일이 지나면 자동으로 영구 삭제돼요.</small>
+            </div>
+            <button onClick={() => setCompletedTrashOpen(false)}>닫기</button>
+          </div>
+          {completedMemos.length === 0 && completedEvents.length === 0 ? (
+            <div className="empty-memos">
+              <strong>완료한 항목이 없어요</strong>
+              <p>메모나 일정을 완료하면 이곳에 30일 동안 보관됩니다.</p>
+            </div>
+          ) : (
+            <div className="completed-trash-list">
+              {completedMemos.map((memo) => (
+                <article key={`memo-${memo.id}`}>
+                  <span>메모</span>
+                  <div>
+                    <strong>{memo.title}</strong>
+                    <small>자동 삭제까지 {daysRemaining(memo.completedAt)}일</small>
+                  </div>
+                  <button
+                    onClick={() =>
+                      setMemos((current) =>
+                        current.map((item) =>
+                          item.id === memo.id
+                            ? { ...item, completed: false, completedAt: undefined }
+                            : item,
+                        ),
+                      )
+                    }
+                  >
+                    복구
+                  </button>
+                </article>
+              ))}
+              {completedEvents.map((event) => (
+                <article key={`event-${event.id}`}>
+                  <span>일정</span>
+                  <div>
+                    <strong>{event.title}</strong>
+                    <small>
+                      {event.date} · 자동 삭제까지 {daysRemaining(event.completedAt)}일
+                    </small>
+                  </div>
+                  <button
+                    onClick={() =>
+                      setEvents((current) =>
+                        current.map((item) =>
+                          item.id === event.id
+                            ? { ...item, completed: false, completedAt: undefined }
+                            : item,
+                        ),
+                      )
+                    }
+                  >
+                    복구
+                  </button>
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
       <div className="coming-note">
         <strong>데이터는 현재 이 브라우저에 저장돼요</strong>
         <p>
@@ -2916,7 +3057,10 @@ export default function Home() {
       );
       const savedChargers = window.localStorage.getItem("my-assistant-chargers");
       try {
-        if (savedMemos) setMemos(JSON.parse(savedMemos));
+        if (savedMemos)
+          setMemos(
+            retainRecentCompleted(JSON.parse(savedMemos) as Memo[]),
+          );
       } catch {
         /* 기본 메모 유지 */
       }
@@ -2932,7 +3076,13 @@ export default function Home() {
               JSON.parse(savedEvents) as Array<
                 CalendarEvent & { duration?: string; category?: string }
               >
-            ).map(normalizeCalendarEvent),
+            retainRecentCompleted(
+              (
+                JSON.parse(savedEvents) as Array<
+                  CalendarEvent & { duration?: string; category?: string }
+                >
+              ).map(normalizeCalendarEvent),
+            ),
           );
       } catch {
         /* 기본 일정 유지 */
@@ -3103,9 +3253,9 @@ export default function Home() {
         )
       )
         return;
-      setMemos(backup.memos);
+      setMemos(retainRecentCompleted(backup.memos));
       setWorkItems(backup.workItems);
-      setEvents(backup.events.map(normalizeCalendarEvent));
+      setEvents(retainRecentCompleted(backup.events.map(normalizeCalendarEvent)));
       if (backup.weatherLocation) setWeatherLocation(backup.weatherLocation);
       if (backup.chargers) setChargers(backup.chargers);
       window.alert("백업 파일에서 데이터를 복원했습니다.");
@@ -3140,6 +3290,8 @@ export default function Home() {
         exportData={exportData}
         exportText={exportText}
         importData={importData}
+        memos={memos}
+        setMemos={setMemos}
         events={events}
         setEvents={setEvents}
       />
