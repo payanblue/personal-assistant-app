@@ -509,7 +509,7 @@ h1 {
 .weekdays,
 .days {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   text-align: center;
 }
 .weekdays {
@@ -521,6 +521,8 @@ h1 {
   color: #d64a4a;
 }
 .days button {
+  min-width: 0;
+  width: 100%;
   aspect-ratio: 1;
   border: 0;
   border-radius: 50%;
@@ -1403,6 +1405,8 @@ h1 {
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .65);
 }
 .days button .holiday-name {
+  display: block;
+  width: 100%;
   padding: 2px 4px;
   border-radius: 5px;
   background: rgba(201, 47, 63, .1);
