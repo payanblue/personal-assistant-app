@@ -2331,3 +2331,88 @@ h1 {
   background: #d6dfd9 !important;
   color: #536158 !important;
 }
+
+
+/* 더보기 완료 휴지통 */
+.completed-trash {
+  display: grid;
+  gap: 12px;
+}
+.completed-trash > .section-title {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.completed-trash > .section-title > div {
+  min-width: 0;
+}
+.completed-trash > .section-title h2 {
+  margin: 0 0 4px;
+}
+.completed-trash > .section-title small {
+  display: block;
+  color: #66766c;
+  line-height: 1.45;
+}
+.completed-trash > .section-title > button {
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding: 8px 11px;
+  border: 0;
+  border-radius: 10px;
+  background: #d7e0da;
+  color: #48584f;
+  font-size: 11px;
+  font-weight: 800;
+}
+.completed-trash-list {
+  display: grid;
+  gap: 9px;
+  min-width: 0;
+}
+.completed-trash-list article {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid #c8d5cc;
+  border-radius: 14px;
+  background: #f3f6f4;
+}
+.completed-trash-list article > span {
+  padding: 5px 7px;
+  border-radius: 8px;
+  background: #dde8e0;
+  color: #42604d;
+  font-size: 10px;
+  font-weight: 800;
+}
+.completed-trash-list article > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+.completed-trash-list article strong {
+  overflow-wrap: anywhere;
+  color: #69776e;
+  font-size: 13px;
+  text-decoration: line-through;
+  text-decoration-thickness: 2px;
+}
+.completed-trash-list article small {
+  color: #7a8980;
+  font-size: 10px;
+}
+.completed-trash-list article > button {
+  width: auto;
+  min-width: 48px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 9px;
+  background: #2f7650;
+  color: white;
+  font-size: 10px;
+  font-weight: 800;
+}
