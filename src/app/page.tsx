@@ -297,6 +297,7 @@ type Restaurant = {
   tags: string[];
   memo: string;
   mapUrl?: string;
+  rating?: number;
   visited: boolean;
   createdAt: string;
 };
@@ -3125,6 +3126,7 @@ function RestaurantMapView({
   const [tags, setTags] = useState("");
   const [memo, setMemo] = useState("");
   const [mapUrl, setMapUrl] = useState("");
+  const [rating, setRating] = useState(0);
   const [visited, setVisited] = useState(false);
   const visibleRestaurants = filter === "전체"
     ? restaurants
@@ -3326,7 +3328,7 @@ function RestaurantMapView({
   };
   const resetFields = () => {
     setEditingId(null); setQuery(""); setResults([]); setSearchMessage(""); setName(""); setAddress("");
-    setLatitude(null); setLongitude(null); setCategory("한식"); setTags(""); setMemo(""); setMapUrl(""); setVisited(false); setOcrStatus("");
+    setLatitude(null); setLongitude(null); setCategory("한식"); setTags(""); setMemo(""); setMapUrl(""); setRating(0); setVisited(false); setOcrStatus("");
   };
   const openNew = () => { resetFields(); setActiveBulkId(null); setEditorOpen(true); };
   const openEdit = (restaurant: Restaurant) => {
@@ -3335,7 +3337,7 @@ function RestaurantMapView({
     setAddress(restaurant.address); setLatitude(restaurant.latitude); setLongitude(restaurant.longitude);
     setCategory(restaurant.category); setTags(restaurant.tags.join(", "));
     setMemo(oldLinkMemo ? "" : restaurant.memo); setMapUrl(restaurant.mapUrl || oldLinkMemo?.[1] || "");
-    setVisited(restaurant.visited); setResults([]); setOcrStatus(""); setEditorOpen(true);
+    setRating(Math.min(5, Math.max(0, Math.round(restaurant.rating ?? 0)))); setVisited(restaurant.visited); setResults([]); setOcrStatus(""); setEditorOpen(true);
   };
   const saveRestaurant = () => {
     if (!name.trim() || latitude === null || longitude === null) {
@@ -3345,11 +3347,13 @@ function RestaurantMapView({
     const value = {
       name: name.trim(), address, latitude, longitude, category,
       tags: tags.split(/[,#]/).map((tag) => tag.trim()).filter(Boolean),
-      memo: memo.trim(), mapUrl: mapUrl || undefined, visited,
+      memo: memo.trim(), mapUrl: mapUrl || undefined, rating: rating || undefined, visited,
     };
     setRestaurants((current) => editingId === null
       ? [{ id: Date.now(), ...value, createdAt: new Date().toISOString() }, ...current]
       : current.map((item) => item.id === editingId ? { ...item, ...value } : item));
+    if (editingId !== null)
+      setSelected((current) => current?.id === editingId ? { ...current, ...value } : current);
     if (activeBulkId !== null) {
       const remaining = bulkItems.filter((item) => item.id !== activeBulkId);
       setBulkItems(remaining);
@@ -3501,9 +3505,18 @@ function RestaurantMapView({
       {selected && (
         <section className="restaurant-selected-card">
           <div className="restaurant-selected-icon">{categoryIcon(selected.category)}</div>
-          <div><strong>{selected.name}</strong><p>{selected.category}{selected.tags.length ? ` · ${selected.tags.join(" · ")}` : ""}</p><small>{selected.address}</small></div>
-          <button onClick={() => openRestaurantMap(selected)}>지도 열기</button>
-          <button className="plain" onClick={() => openEdit(selected)}>수정</button>
+          <div className="restaurant-selected-details">
+            <strong>{selected.name}</strong>
+            <p className="restaurant-selected-rating">{selected.rating ? `${[1, 2, 3, 4, 5].map((score) => score <= (selected.rating ?? 0) ? "★" : "☆").join("")} · ${selected.rating}점` : "☆☆☆☆☆ · 별점 없음"}</p>
+            <p>{selected.category}{selected.tags.length ? ` · ${selected.tags.join(" · ")}` : ""}</p>
+            <small>{selected.address}</small>
+            {selected.memo && <p className="restaurant-selected-memo">📝 {selected.memo}</p>}
+            <span className="restaurant-selected-visit">{selected.visited ? "✓ 이미 가본 곳" : "○ 가볼 곳"}</span>
+          </div>
+          <div className="restaurant-selected-actions">
+            <button onClick={() => openRestaurantMap(selected)}>지도 열기</button>
+            <button className="plain" onClick={() => openEdit(selected)}>수정</button>
+          </div>
         </section>
       )}
       <section className="restaurant-list section-block">
@@ -3512,7 +3525,7 @@ function RestaurantMapView({
           <article key={restaurant.id}>
             <button className="restaurant-list-main" onClick={() => { setSelected(restaurant); mapRef.current?.setView([restaurant.latitude, restaurant.longitude], 16); }}>
               <span>{categoryIcon(restaurant.category)}</span>
-              <div><strong>{restaurant.name}</strong><small>{restaurant.visited ? "가본 곳" : "가볼 곳"} · {restaurant.category}</small></div><b>›</b>
+              <div><strong>{restaurant.name}</strong><small>{restaurant.rating ? `★ ${restaurant.rating} · ` : ""}{restaurant.visited ? "가본 곳" : "가볼 곳"} · {restaurant.category}</small></div><b>›</b>
             </button>
             <button className="restaurant-naver" onClick={() => openRestaurantMap(restaurant)}>네이버지도</button>
           </article>
@@ -3561,6 +3574,7 @@ function RestaurantMapView({
             {latitude !== null && longitude !== null && <div className="chosen-place-label"><strong>선택한 위치</strong><small>{address}</small></div>}
             <label>음식 종류<select value={category} onChange={(event) => setCategory(event.target.value as Exclude<RestaurantCategory, "전체">)}>{restaurantCategories.filter((item) => item.id !== "전체").map((item) => <option key={item.id} value={item.id}>{item.icon} {item.id}</option>)}</select></label>
             <label>상세 태그<input value={tags} onChange={(event) => setTags(event.target.value)} placeholder="국밥, 짬뽕, 수제버거처럼 쉼표로 구분" /></label>
+            <label>내 별점<div className="restaurant-rating" role="group" aria-label="내 별점">{[1, 2, 3, 4, 5].map((score) => <button type="button" className={score <= rating ? "selected" : ""} aria-label={`${score}점`} aria-pressed={rating === score} onClick={() => setRating((current) => current === score ? 0 : score)} key={score}>★</button>)}</div></label>
             <label>내 메모<textarea value={memo} onChange={(event) => setMemo(event.target.value)} rows={3} placeholder="먹고 싶은 메뉴, 주차 등" /></label>
             <label className="restaurant-visited"><input type="checkbox" checked={visited} onChange={(event) => setVisited(event.target.checked)} /><span>이미 가본 곳</span></label>
             <footer>
