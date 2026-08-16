@@ -2812,6 +2812,7 @@ h1 {
 .restaurant-search-results { display: grid; gap: 5px; max-height: 170px; overflow-y: auto; margin-top: 7px; }
 .restaurant-search-results button { display: grid; gap: 2px; padding: 10px; border: 1px solid #d5ded9; border-radius: 10px; background: #fff; text-align: left; }
 .restaurant-search-results small, .chosen-place small { overflow-wrap: anywhere; color: #748279; font-size: 9px; }
+.restaurant-map-pick { width: 100%; margin-top: 8px; padding: 11px; border: 1px solid #8fb7a4; border-radius: 11px; background: #eef6f1; color: #286c50; font-size: 11px; font-weight: 850; }
 .chosen-place { display: grid; gap: 3px; margin-top: 9px; padding: 10px; border-radius: 11px; background: #dfece5; color: #275b45; }
 .restaurant-visited { grid-template-columns: auto 1fr !important; align-items: center; }
 .restaurant-visited input { width: 18px; height: 18px; }

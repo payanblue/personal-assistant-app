@@ -34,6 +34,7 @@ type GoogleTokenClient = {
 
 type LeafletMap = {
   setView: (center: [number, number], zoom: number) => LeafletMap;
+  once: (event: string, handler: (event: { latlng: { lat: number; lng: number } }) => void) => LeafletMap;
   remove: () => void;
 };
 type LeafletLayer = { clearLayers: () => void; addTo: (map: LeafletMap) => LeafletLayer };
@@ -3111,6 +3112,34 @@ function RestaurantMapView({
     setResults([]);
     mapRef.current?.setView([Number(result.lat), Number(result.lon)], 16);
   };
+  const pickPlaceOnMap = () => {
+    const map = mapRef.current;
+    if (!map) {
+      window.alert("지도를 불러오는 중이에요. 잠시 후 다시 눌러 주세요.");
+      return;
+    }
+    setEditorOpen(false);
+    window.alert("지도를 움직여 가게 위치를 찾은 다음, 그 지점을 한 번 눌러 주세요.");
+    map.once("click", ({ latlng }) => {
+      const pickedLatitude = latlng.lat;
+      const pickedLongitude = latlng.lng;
+      setLatitude(pickedLatitude);
+      setLongitude(pickedLongitude);
+      setName((current) => current.trim() || query.trim());
+      setAddress("지도에서 직접 지정한 위치");
+      setResults([]);
+      setEditorOpen(true);
+      setOcrStatus("지도에서 위치를 지정했어요. 상호명과 음식 종류를 확인한 뒤 저장하세요.");
+      void fetch(
+        `https://nominatim.openstreetmap.org/reverse?format=jsonv2&addressdetails=1&accept-language=ko&lat=${pickedLatitude}&lon=${pickedLongitude}`,
+      )
+        .then((response) => response.ok ? response.json() : null)
+        .then((place: { display_name?: string } | null) => {
+          if (place?.display_name) setAddress(place.display_name);
+        })
+        .catch(() => undefined);
+    });
+  };
   const resetFields = () => {
     setEditingId(null); setQuery(""); setResults([]); setName(""); setAddress("");
     setLatitude(null); setLongitude(null); setCategory("한식"); setTags(""); setMemo(""); setVisited(false); setOcrStatus("");
@@ -3291,6 +3320,7 @@ function RestaurantMapView({
             )}
             <label>상호명 또는 주소<div className="restaurant-search-row"><input value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void searchPlace(); }} placeholder="예: 점심엔 한우국밥 울산" autoFocus /><button onClick={() => void searchPlace()} disabled={searching}>{searching ? "검색 중" : "검색"}</button></div></label>
             {results.length > 0 && <div className="restaurant-search-results">{results.map((result) => <button onClick={() => chooseResult(result)} key={`${result.lat}-${result.lon}`}><strong>{result.display_name.split(",")[0]}</strong><small>{result.display_name}</small></button>)}</div>}
+            {results.length === 0 && query.trim() && <button className="restaurant-map-pick" onClick={pickPlaceOnMap}>📍 검색이 안 되면 지도에서 위치 직접 선택</button>}
             {latitude !== null && longitude !== null && <label className="chosen-place-label">저장할 상호명<input value={name} onChange={(event) => setName(event.target.value)} /><small>선택한 장소: {address}</small></label>}
             <label>음식 종류<select value={category} onChange={(event) => setCategory(event.target.value as Exclude<RestaurantCategory, "전체">)}>{restaurantCategories.filter((item) => item.id !== "전체").map((item) => <option key={item.id} value={item.id}>{item.icon} {item.id}</option>)}</select></label>
             <label>상세 태그<input value={tags} onChange={(event) => setTags(event.target.value)} placeholder="국밥, 짬뽕, 수제버거처럼 쉼표로 구분" /></label>
