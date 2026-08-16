@@ -25,7 +25,7 @@ export default function manifest(): MetadataRoute.Manifest {
         files: [
           {
             name: "photos",
-            accept: ["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"],
+            accept: ["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif", "text/plain"],
           },
         ],
       },

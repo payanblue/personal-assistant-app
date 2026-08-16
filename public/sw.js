@@ -1,4 +1,4 @@
-const CACHE_NAME = "personal-assistant-v4-map-share";
+const CACHE_NAME = "personal-assistant-v5-text-share-search";
 const APP_SHELL = ["./"];
 const SHARE_DB_NAME = "personal-assistant-share-target";
 const SHARE_STORE_NAME = "restaurant-images";

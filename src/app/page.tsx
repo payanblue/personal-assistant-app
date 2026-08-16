@@ -2988,6 +2988,12 @@ function likelyRestaurantAddress(text: string) {
   return [...new Set(matches)].sort((a, b) => a.length - b.length)[0] ?? "";
 }
 
+function likelyRestaurantLocationQuery(text: string) {
+  return likelyRestaurantAddress(text) ||
+    text.match(/[가-힣0-9·]+(?:동|읍|면|리)\s*\d+(?:-\d+)?/)?.[0]?.trim() ||
+    "";
+}
+
 function parseSharedRestaurantPlace(place: SharedRestaurantPlace) {
   const combined = [place.title, place.text].filter(Boolean).join("\n");
   const url = (place.url || combined.match(/https?:\/\/\S+/)?.[0] || "").replace(/[),.]+$/, "");
@@ -3172,15 +3178,28 @@ function RestaurantMapView({
         if (!response.ok) throw new Error("search failed");
         return (await response.json()) as PlaceSearchResult[];
       };
-      let places = await requestPlaces(value);
-      let usedAddressFallback = false;
-      if (!places.length && fallbackAddress.trim() && fallbackAddress.trim() !== value.trim()) {
-        places = await requestPlaces(fallbackAddress);
-        usedAddressFallback = places.length > 0;
+      const searchValues = [value, fallbackAddress]
+        .flatMap((keyword) => {
+          const cleaned = keyword
+            .replace(/^\s*(도로명|지번|주소)\s*/i, "")
+            .replace(/\s+/g, " ")
+            .trim();
+          const addressOnly = likelyRestaurantLocationQuery(cleaned);
+          return [cleaned, addressOnly];
+        })
+        .filter((keyword, index, all) => keyword && all.indexOf(keyword) === index);
+      let places: PlaceSearchResult[] = [];
+      let matchedSearchValue = "";
+      for (const searchValue of searchValues) {
+        places = await requestPlaces(searchValue);
+        if (places.length) {
+          matchedSearchValue = searchValue;
+          break;
+        }
       }
       setResults(places);
-      if (places.length) setSearchMessage(usedAddressFallback
-        ? `상호명은 지도에 없어 사진 속 주소(${fallbackAddress})로 찾았어요. 정확한 위치를 선택하세요.`
+      if (places.length) setSearchMessage(matchedSearchValue !== value.trim()
+        ? `주소에서 상호명을 빼고 '${matchedSearchValue}'로 다시 찾아 ${places.length}개의 결과가 나왔어요.`
         : `${places.length}개의 검색 결과가 있어요. 정확한 장소를 선택하세요.`);
       else {
         setSearchMessage("검색 결과가 없어요. 주소를 입력하거나 지도에서 직접 찾아보세요.");
@@ -3194,9 +3213,9 @@ function RestaurantMapView({
   };
   const chooseResult = (result: PlaceSearchResult) => {
     const resultName = result.display_name.split(",")[0].trim();
-    const chosenName = name.trim() || resultName || query.trim();
+    const searchedByAddress = Boolean(likelyRestaurantLocationQuery(query));
+    const chosenName = name.trim() || (!searchedByAddress ? resultName || query.trim() : "");
     setName(chosenName);
-    setQuery(chosenName);
     setAddress(result.display_name);
     setLatitude(Number(result.lat));
     setLongitude(Number(result.lon));
@@ -3478,11 +3497,12 @@ function RestaurantMapView({
                 ))}
               </section>
             )}
-            <label>상호명 또는 주소<div className="restaurant-search-row"><input value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void searchPlace(); }} placeholder="예: 점심엔 한우국밥 울산" autoFocus /><button onClick={() => void searchPlace()} disabled={searching}>{searching ? "검색 중" : "검색"}</button></div></label>
+            <label>저장할 상호명<input value={name} onChange={(event) => setName(event.target.value)} placeholder="예: 모도리식탁" autoFocus /></label>
+            <label>주소 또는 위치 검색<div className="restaurant-search-row"><input value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void searchPlace(); }} placeholder="예: 옥현로46번길 9-12" /><button onClick={() => void searchPlace()} disabled={searching}>{searching ? "검색 중" : "검색"}</button></div></label>
             {searchMessage && <p className="restaurant-search-message">{searchMessage}</p>}
             {results.length > 0 && <div className="restaurant-search-results">{results.map((result) => <button onClick={() => chooseResult(result)} key={`${result.lat}-${result.lon}`}><strong>{result.display_name.split(",")[0]}</strong><small>{result.display_name}</small></button>)}</div>}
             {results.length === 0 && query.trim() && <button className="restaurant-map-pick" onClick={pickPlaceOnMap}>📍 검색이 안 되면 지도에서 위치 직접 선택</button>}
-            {latitude !== null && longitude !== null && <label className="chosen-place-label">저장할 상호명<input value={name} onChange={(event) => setName(event.target.value)} /><small>선택한 장소: {address}</small></label>}
+            {latitude !== null && longitude !== null && <div className="chosen-place-label"><strong>선택한 위치</strong><small>{address}</small></div>}
             <label>음식 종류<select value={category} onChange={(event) => setCategory(event.target.value as Exclude<RestaurantCategory, "전체">)}>{restaurantCategories.filter((item) => item.id !== "전체").map((item) => <option key={item.id} value={item.id}>{item.icon} {item.id}</option>)}</select></label>
             <label>상세 태그<input value={tags} onChange={(event) => setTags(event.target.value)} placeholder="국밥, 짬뽕, 수제버거처럼 쉼표로 구분" /></label>
             <label>내 메모<textarea value={memo} onChange={(event) => setMemo(event.target.value)} rows={3} placeholder="먹고 싶은 메뉴, 주차 등" /></label>
@@ -4051,7 +4071,8 @@ export default function Home() {
   useEffect(() => {
     if (process.env.NODE_ENV === "production" && "serviceWorker" in navigator)
       navigator.serviceWorker
-        .register(`${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/sw.js`)
+        .register(`${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/sw.js`, { updateViaCache: "none" })
+        .then((registration) => registration.update())
         .catch(() => undefined);
   }, []);
   const saveVoiceEntry = (
