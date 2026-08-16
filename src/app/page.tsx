@@ -3072,10 +3072,6 @@ export default function Home() {
       try {
         if (savedEvents)
           setEvents(
-            (
-              JSON.parse(savedEvents) as Array<
-                CalendarEvent & { duration?: string; category?: string }
-              >
             retainRecentCompleted(
               (
                 JSON.parse(savedEvents) as Array<
@@ -3147,6 +3143,21 @@ export default function Home() {
     if (storageReady)
       window.localStorage.setItem("my-assistant-chargers", JSON.stringify(chargers));
   }, [chargers, storageReady]);
+  useEffect(() => {
+    if (!storageReady) return;
+    const purgeExpiredCompleted = () => {
+      setMemos((current) => {
+        const next = retainRecentCompleted(current);
+        return next.length === current.length ? current : next;
+      });
+      setEvents((current) => {
+        const next = retainRecentCompleted(current);
+        return next.length === current.length ? current : next;
+      });
+    };
+    const timer = window.setInterval(purgeExpiredCompleted, 60 * 60 * 1000);
+    return () => window.clearInterval(timer);
+  }, [storageReady]);
   useEffect(() => {
     if (process.env.NODE_ENV === "production" && "serviceWorker" in navigator)
       navigator.serviceWorker
