@@ -34,7 +34,9 @@ type GoogleTokenClient = {
 
 type LeafletMap = {
   setView: (center: [number, number], zoom: number) => LeafletMap;
-  once: (event: string, handler: (event: { latlng: { lat: number; lng: number } }) => void) => LeafletMap;
+  on: (event: string, handler: (event: { latlng: { lat: number; lng: number } }) => void) => LeafletMap;
+  off: (event: string, handler: (event: { latlng: { lat: number; lng: number } }) => void) => LeafletMap;
+  invalidateSize: () => LeafletMap;
   remove: () => void;
 };
 type LeafletLayer = { clearLayers: () => void; addTo: (map: LeafletMap) => LeafletLayer };
@@ -3000,6 +3002,7 @@ function RestaurantMapView({
   const markerLayerRef = useRef<LeafletLayer | null>(null);
   const fileInput = useRef<HTMLInputElement | null>(null);
   const handledSharedFiles = useRef<File[] | null>(null);
+  const mapPickHandlerRef = useRef<((event: { latlng: { lat: number; lng: number } }) => void) | null>(null);
   const [filter, setFilter] = useState<RestaurantCategory>("전체");
   const [mapReady, setMapReady] = useState(false);
   const [currentPosition, setCurrentPosition] = useState<[number, number] | null>(null);
@@ -3009,6 +3012,12 @@ function RestaurantMapView({
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<PlaceSearchResult[]>([]);
   const [searching, setSearching] = useState(false);
+  const [searchMessage, setSearchMessage] = useState("");
+  const [mapPicking, setMapPicking] = useState(false);
+  const [mapSearchQuery, setMapSearchQuery] = useState("");
+  const [mapSearchResults, setMapSearchResults] = useState<PlaceSearchResult[]>([]);
+  const [mapSearching, setMapSearching] = useState(false);
+  const [mapSearchMessage, setMapSearchMessage] = useState("");
   const [ocrStatus, setOcrStatus] = useState("");
   const [bulkItems, setBulkItems] = useState<RestaurantImportItem[]>([]);
   const [activeBulkId, setActiveBulkId] = useState<number | null>(null);
@@ -3096,6 +3105,7 @@ function RestaurantMapView({
   const searchPlace = async (value = query) => {
     if (!value.trim()) return;
     setSearching(true);
+    setSearchMessage("장소를 검색하고 있어요…");
     try {
       const response = await fetch(
         `https://nominatim.openstreetmap.org/search?format=jsonv2&countrycodes=kr&limit=8&accept-language=ko&q=${encodeURIComponent(value.trim())}`,
@@ -3103,10 +3113,13 @@ function RestaurantMapView({
       if (!response.ok) throw new Error("search failed");
       const places = (await response.json()) as PlaceSearchResult[];
       setResults(places);
-      if (!places.length)
+      if (places.length) setSearchMessage(`${places.length}개의 검색 결과가 있어요. 정확한 장소를 선택하세요.`);
+      else {
+        setSearchMessage("검색 결과가 없어요. 주소를 입력하거나 지도에서 직접 찾아보세요.");
         setOcrStatus("검색 결과가 없어요. 상호명 뒤에 동네나 주소를 함께 적어 다시 검색해 주세요.");
+      }
     } catch {
-      window.alert("장소를 찾지 못했어요. 상호명 뒤에 동네나 주소를 함께 적어보세요.");
+      setSearchMessage("검색 연결에 실패했어요. 잠시 후 다시 검색하거나 지도에서 직접 찾아보세요.");
     } finally {
       setSearching(false);
     }
@@ -3119,7 +3132,33 @@ function RestaurantMapView({
     setLatitude(Number(result.lat));
     setLongitude(Number(result.lon));
     setResults([]);
+    setSearchMessage("장소를 선택했어요.");
     mapRef.current?.setView([Number(result.lat), Number(result.lon)], 16);
+  };
+  const detachMapPickHandler = () => {
+    const map = mapRef.current;
+    if (map && mapPickHandlerRef.current) map.off("click", mapPickHandlerRef.current);
+    mapPickHandlerRef.current = null;
+  };
+  const finishMapPick = (pickedLatitude: number, pickedLongitude: number, pickedAddress = "지도에서 직접 지정한 위치") => {
+    detachMapPickHandler();
+    setLatitude(pickedLatitude);
+    setLongitude(pickedLongitude);
+    setName((current) => current.trim() || query.trim());
+    setAddress(pickedAddress);
+    setResults([]);
+    setMapPicking(false);
+    setEditorOpen(true);
+    setOcrStatus("지도에서 위치를 지정했어요. 상호명과 음식 종류를 확인한 뒤 저장하세요.");
+    if (pickedAddress !== "지도에서 직접 지정한 위치") return;
+    void fetch(
+      `https://nominatim.openstreetmap.org/reverse?format=jsonv2&addressdetails=1&accept-language=ko&lat=${pickedLatitude}&lon=${pickedLongitude}`,
+    )
+      .then((response) => response.ok ? response.json() : null)
+      .then((place: { display_name?: string } | null) => {
+        if (place?.display_name) setAddress(place.display_name);
+      })
+      .catch(() => undefined);
   };
   const pickPlaceOnMap = () => {
     const map = mapRef.current;
@@ -3127,30 +3166,41 @@ function RestaurantMapView({
       window.alert("지도를 불러오는 중이에요. 잠시 후 다시 눌러 주세요.");
       return;
     }
+    detachMapPickHandler();
+    setMapSearchQuery(query.trim());
+    setMapSearchResults([]);
+    setMapSearchMessage("상호명이나 주소로 검색하거나 지도를 움직여 위치를 누르세요.");
     setEditorOpen(false);
-    window.alert("지도를 움직여 가게 위치를 찾은 다음, 그 지점을 한 번 눌러 주세요.");
-    map.once("click", ({ latlng }) => {
-      const pickedLatitude = latlng.lat;
-      const pickedLongitude = latlng.lng;
-      setLatitude(pickedLatitude);
-      setLongitude(pickedLongitude);
-      setName((current) => current.trim() || query.trim());
-      setAddress("지도에서 직접 지정한 위치");
-      setResults([]);
-      setEditorOpen(true);
-      setOcrStatus("지도에서 위치를 지정했어요. 상호명과 음식 종류를 확인한 뒤 저장하세요.");
-      void fetch(
-        `https://nominatim.openstreetmap.org/reverse?format=jsonv2&addressdetails=1&accept-language=ko&lat=${pickedLatitude}&lon=${pickedLongitude}`,
-      )
-        .then((response) => response.ok ? response.json() : null)
-        .then((place: { display_name?: string } | null) => {
-          if (place?.display_name) setAddress(place.display_name);
-        })
-        .catch(() => undefined);
-    });
+    setMapPicking(true);
+    const handler = ({ latlng }: { latlng: { lat: number; lng: number } }) => finishMapPick(latlng.lat, latlng.lng);
+    mapPickHandlerRef.current = handler;
+    map.on("click", handler);
+    window.setTimeout(() => map.invalidateSize(), 50);
+  };
+  const searchInsideMap = async () => {
+    const keyword = mapSearchQuery.trim();
+    if (!keyword) return;
+    setMapSearching(true);
+    setMapSearchMessage("지도에서 검색하고 있어요…");
+    try {
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=jsonv2&countrycodes=kr&limit=8&accept-language=ko&q=${encodeURIComponent(keyword)}`,
+      );
+      if (!response.ok) throw new Error("map search failed");
+      const places = (await response.json()) as PlaceSearchResult[];
+      setMapSearchResults(places);
+      setMapSearchMessage(places.length
+        ? `${places.length}개의 결과가 있어요. 원하는 장소를 누르세요.`
+        : "검색 결과가 없어요. 도로명 주소나 동네를 함께 입력해 보세요.");
+      if (places[0]) mapRef.current?.setView([Number(places[0].lat), Number(places[0].lon)], 16);
+    } catch {
+      setMapSearchMessage("검색 연결에 실패했어요. 잠시 후 다시 시도해 주세요.");
+    } finally {
+      setMapSearching(false);
+    }
   };
   const resetFields = () => {
-    setEditingId(null); setQuery(""); setResults([]); setName(""); setAddress("");
+    setEditingId(null); setQuery(""); setResults([]); setSearchMessage(""); setName(""); setAddress("");
     setLatitude(null); setLongitude(null); setCategory("한식"); setTags(""); setMemo(""); setVisited(false); setOcrStatus("");
   };
   const openNew = () => { resetFields(); setActiveBulkId(null); setEditorOpen(true); };
@@ -3268,10 +3318,18 @@ function RestaurantMapView({
           ))}
         </div>
       </section>
-      <section className="restaurant-map-card">
+      <section className={`restaurant-map-card ${mapPicking ? "map-picking" : ""}`}>
         <div className="restaurant-map" ref={mapElement} />
-        <button className="locate-me" onClick={locateMe}>◎ 내 위치</button>
-        <button className="restaurant-add-map" onClick={openNew}>＋ 맛집 등록</button>
+        {mapPicking ? (
+          <section className="map-pick-panel">
+            <header><strong>가게 위치 찾기</strong><button onClick={() => { detachMapPickHandler(); setMapPicking(false); setEditorOpen(true); }}>×</button></header>
+            <div className="map-pick-search"><input value={mapSearchQuery} onChange={(event) => setMapSearchQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void searchInsideMap(); }} placeholder="상호명 또는 도로명 주소" autoFocus /><button onClick={() => void searchInsideMap()} disabled={mapSearching}>{mapSearching ? "검색 중" : "검색"}</button></div>
+            <p>{mapSearchMessage}</p>
+            {mapSearchResults.length > 0 && <div className="map-pick-results">{mapSearchResults.map((result) => <button key={`${result.lat}-${result.lon}`} onClick={() => finishMapPick(Number(result.lat), Number(result.lon), result.display_name)}><strong>{result.display_name.split(",")[0]}</strong><small>{result.display_name}</small></button>)}</div>}
+          </section>
+        ) : (
+          <><button className="locate-me" onClick={locateMe}>◎ 내 위치</button><button className="restaurant-add-map" onClick={openNew}>＋ 맛집 등록</button></>
+        )}
       </section>
       {selected && (
         <section className="restaurant-selected-card">
@@ -3328,6 +3386,7 @@ function RestaurantMapView({
               </section>
             )}
             <label>상호명 또는 주소<div className="restaurant-search-row"><input value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void searchPlace(); }} placeholder="예: 점심엔 한우국밥 울산" autoFocus /><button onClick={() => void searchPlace()} disabled={searching}>{searching ? "검색 중" : "검색"}</button></div></label>
+            {searchMessage && <p className="restaurant-search-message">{searchMessage}</p>}
             {results.length > 0 && <div className="restaurant-search-results">{results.map((result) => <button onClick={() => chooseResult(result)} key={`${result.lat}-${result.lon}`}><strong>{result.display_name.split(",")[0]}</strong><small>{result.display_name}</small></button>)}</div>}
             {results.length === 0 && query.trim() && <button className="restaurant-map-pick" onClick={pickPlaceOnMap}>📍 검색이 안 되면 지도에서 위치 직접 선택</button>}
             {latitude !== null && longitude !== null && <label className="chosen-place-label">저장할 상호명<input value={name} onChange={(event) => setName(event.target.value)} /><small>선택한 장소: {address}</small></label>}
