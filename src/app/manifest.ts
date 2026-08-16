@@ -14,6 +14,19 @@ export default function manifest(): MetadataRoute.Manifest {
     theme_color: "#216b4a",
     lang: "ko-KR",
     orientation: "portrait",
+    share_target: {
+      action: `${basePath}/share-target`,
+      method: "POST",
+      enctype: "multipart/form-data",
+      params: {
+        files: [
+          {
+            name: "photos",
+            accept: ["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"],
+          },
+        ],
+      },
+    },
     icons: [
       { src: `${basePath}/assistant-icon.svg`, sizes: "any", type: "image/svg+xml", purpose: "any" },
       { src: `${basePath}/assistant-icon-maskable.svg`, sizes: "any", type: "image/svg+xml", purpose: "maskable" },
