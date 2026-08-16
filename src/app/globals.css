@@ -2307,3 +2307,27 @@ h1 {
     justify-self: end;
   }
 }
+
+
+/* 메모·일정 완료 표시 */
+.card-list > article.completed-entry h3,
+.card-list > article.completed-entry > p,
+.schedule-card.completed-entry .time,
+.schedule-card.completed-entry .event-info > strong,
+.schedule-card.completed-entry .event-info > p,
+.month-event-list > button.completed-entry strong,
+.month-event-list > button.completed-entry small {
+  text-decoration: line-through;
+  text-decoration-thickness: 2px;
+  text-decoration-color: #6f8176;
+  color: #7a8980;
+}
+.card-list > article.completed-entry,
+.schedule-card.completed-entry,
+.month-event-list > button.completed-entry {
+  background: #edf1ee;
+}
+.complete-toggle.active {
+  background: #d6dfd9 !important;
+  color: #536158 !important;
+}
