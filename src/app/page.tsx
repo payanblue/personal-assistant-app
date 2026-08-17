@@ -3635,6 +3635,7 @@ function MoreView({
   exportText,
   importData,
   importRestaurantData,
+  importIncludedRestaurants,
   memos,
   setMemos,
   events,
@@ -3644,6 +3645,7 @@ function MoreView({
   exportText: () => void;
   importData: (file: File) => void;
   importRestaurantData: (file: File) => Promise<void>;
+  importIncludedRestaurants: () => Promise<void>;
   memos: Memo[];
   setMemos: React.Dispatch<React.SetStateAction<Memo[]>>;
   events: CalendarEvent[];
@@ -3771,6 +3773,20 @@ function MoreView({
           <div>
             <strong>{restaurantsImporting ? "맛집 위치 확인 중…" : "맛집 일괄 불러오기"}</strong>
             <small>기존 자료는 유지하고 중복을 제외해 추가</small>
+          </div>
+          <b>＋</b>
+        </button>
+        <button
+          onClick={() => {
+            setRestaurantsImporting(true);
+            void importIncludedRestaurants().finally(() => setRestaurantsImporting(false));
+          }}
+          disabled={restaurantsImporting}
+        >
+          <span>📍</span>
+          <div>
+            <strong>{restaurantsImporting ? "맛집 위치 확인 중…" : "올린 맛집 44곳 바로 등록"}</strong>
+            <small>지금까지 올린 캡처의 맛집을 한 번에 추가</small>
           </div>
           <b>＋</b>
         </button>
@@ -4438,6 +4454,23 @@ export default function Home() {
       window.alert("올바른 맛집 일괄 등록 파일이 아닙니다.");
     }
   };
+  const importIncludedRestaurants = async () => {
+    try {
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/restaurant-import-44.json`,
+        { cache: "no-store" },
+      );
+      if (!response.ok) throw new Error("included restaurants unavailable");
+      const file = new File(
+        [await response.blob()],
+        "나의비서-맛집-일괄등록-44곳.json",
+        { type: "application/json" },
+      );
+      await importRestaurantData(file);
+    } catch {
+      window.alert("포함된 맛집 목록을 불러오지 못했어요. 잠시 후 다시 시도해 주세요.");
+    }
+  };
   const views = {
     home: (
       <HomeView
@@ -4474,6 +4507,7 @@ export default function Home() {
         exportText={exportText}
         importData={importData}
         importRestaurantData={importRestaurantData}
+        importIncludedRestaurants={importIncludedRestaurants}
         memos={memos}
         setMemos={setMemos}
         events={events}
