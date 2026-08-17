@@ -3134,6 +3134,7 @@ function RestaurantMapView({
   const fileInput = useRef<HTMLInputElement | null>(null);
   const handledSharedFiles = useRef<File[] | null>(null);
   const mapPickHandlerRef = useRef<((event: { latlng: { lat: number; lng: number } }) => void) | null>(null);
+  const restaurantOverlayHistoryRef = useRef(false);
   const [filter, setFilter] = useState<RestaurantCategory>("전체");
   const [mapReady, setMapReady] = useState(false);
   const [currentPosition, setCurrentPosition] = useState<[number, number] | null>(null);
@@ -3297,6 +3298,33 @@ function RestaurantMapView({
     if (map && mapPickHandlerRef.current) map.off("click", mapPickHandlerRef.current);
     mapPickHandlerRef.current = null;
   };
+  const openRestaurantOverlay = () => {
+    if (!restaurantOverlayHistoryRef.current) {
+      window.history.pushState({ personalAssistantOverlay: "restaurant" }, "");
+      restaurantOverlayHistoryRef.current = true;
+    }
+    setEditorOpen(true);
+  };
+  const closeRestaurantOverlay = () => {
+    if (restaurantOverlayHistoryRef.current) {
+      window.history.back();
+      return;
+    }
+    detachMapPickHandler();
+    setMapPicking(false);
+    setEditorOpen(false);
+  };
+  useEffect(() => {
+    const closeOnBack = () => {
+      if (!restaurantOverlayHistoryRef.current) return;
+      restaurantOverlayHistoryRef.current = false;
+      detachMapPickHandler();
+      setMapPicking(false);
+      setEditorOpen(false);
+    };
+    window.addEventListener("popstate", closeOnBack);
+    return () => window.removeEventListener("popstate", closeOnBack);
+  }, []);
   const finishMapPick = (pickedLatitude: number, pickedLongitude: number, pickedAddress = "지도에서 직접 지정한 위치") => {
     detachMapPickHandler();
     setLatitude(pickedLatitude);
@@ -3364,14 +3392,14 @@ function RestaurantMapView({
     setEditingId(null); setQuery(""); setResults([]); setSearchMessage(""); setName(""); setAddress("");
     setLatitude(null); setLongitude(null); setCategory("한식"); setTags(""); setMemo(""); setMapUrl(""); setRating(0); setVisited(false); setOcrStatus("");
   };
-  const openNew = () => { resetFields(); setActiveBulkId(null); setEditorOpen(true); };
+  const openNew = () => { resetFields(); setActiveBulkId(null); openRestaurantOverlay(); };
   const openEdit = (restaurant: Restaurant) => {
     const oldLinkMemo = restaurant.memo.match(/^지도 공유 링크:\s*(https:\/\/\S+)\s*$/);
     setEditingId(restaurant.id); setQuery(restaurant.name); setName(restaurant.name);
     setAddress(restaurant.address); setLatitude(restaurant.latitude); setLongitude(restaurant.longitude);
     setCategory(restaurant.category); setTags(restaurant.tags.join(", "));
     setMemo(oldLinkMemo ? "" : restaurant.memo); setMapUrl(restaurant.mapUrl || oldLinkMemo?.[1] || "");
-    setRating(Math.min(5, Math.max(0, Math.round((restaurant.rating ?? 0) * 2) / 2))); setVisited(restaurant.visited); setResults([]); setOcrStatus(""); setEditorOpen(true);
+    setRating(Math.min(5, Math.max(0, Math.round((restaurant.rating ?? 0) * 2) / 2))); setVisited(restaurant.visited); setResults([]); setOcrStatus(""); openRestaurantOverlay();
   };
   const saveRestaurant = () => {
     if (!name.trim() || latitude === null || longitude === null) {
@@ -3395,8 +3423,8 @@ function RestaurantMapView({
       if (remaining.length) {
         resetFields();
         setOcrStatus(`등록했어요. 확인할 캡처가 ${remaining.length}장 남았어요.`);
-      } else setEditorOpen(false);
-    } else setEditorOpen(false);
+      } else closeRestaurantOverlay();
+    } else closeRestaurantOverlay();
   };
   const readScreenshots = useCallback(async (files: File[]) => {
     if (!files.length) return;
@@ -3469,7 +3497,7 @@ function RestaurantMapView({
     handledSharedFiles.current = sharedFiles;
     resetFields();
     setActiveBulkId(null);
-    setEditorOpen(true);
+    openRestaurantOverlay();
     void readScreenshots(sharedFiles).finally(clearSharedFiles);
   }, [sharedFiles, clearSharedFiles, readScreenshots]);
 
@@ -3479,7 +3507,7 @@ function RestaurantMapView({
     let cancelled = false;
     resetFields();
     setActiveBulkId(null);
-    setEditorOpen(true);
+    openRestaurantOverlay();
     setName(parsed.name);
     setQuery(parsed.name || parsed.address);
     setAddress(parsed.address);
@@ -3568,7 +3596,7 @@ function RestaurantMapView({
       {editorOpen && (
         <div className="restaurant-editor-overlay" role="dialog" aria-modal="true" aria-label="맛집 등록">
           <section className="restaurant-editor">
-            <header><div><p className="eyebrow">내 맛집 지도</p><h2>{editingId === null ? "맛집 등록" : "맛집 수정"}</h2></div><button onClick={() => setEditorOpen(false)}>×</button></header>
+            <header><div><p className="eyebrow">내 맛집 지도</p><h2>{editingId === null ? "맛집 등록" : "맛집 수정"}</h2></div><button onClick={closeRestaurantOverlay}>×</button></header>
             <div className="restaurant-import-actions">
               <button onClick={() => fileInput.current?.click()}>▣ 지도 캡처 여러 장 가져오기</button>
               <input ref={fileInput} type="file" accept="image/*" multiple hidden onChange={(event) => { const files = Array.from(event.target.files ?? []); if (files.length) void readScreenshots(files); event.target.value = ""; }} />
@@ -3620,8 +3648,8 @@ function RestaurantMapView({
             <label>내 메모<textarea value={memo} onChange={(event) => setMemo(event.target.value)} rows={3} placeholder="먹고 싶은 메뉴, 주차 등" /></label>
             <label className="restaurant-visited"><input type="checkbox" checked={visited} onChange={(event) => setVisited(event.target.checked)} /><span>이미 가본 곳</span></label>
             <footer>
-              {editingId !== null && <button className="danger" onClick={() => { if (window.confirm("이 맛집을 삭제할까요?")) { setRestaurants((current) => current.filter((item) => item.id !== editingId)); setSelected(null); setEditorOpen(false); } }}>삭제</button>}
-              <button className="cancel" onClick={() => setEditorOpen(false)}>취소</button><button onClick={saveRestaurant}>저장</button>
+              {editingId !== null && <button className="danger" onClick={() => { if (window.confirm("이 맛집을 삭제할까요?")) { setRestaurants((current) => current.filter((item) => item.id !== editingId)); setSelected(null); closeRestaurantOverlay(); } }}>삭제</button>}
+              <button className="cancel" onClick={closeRestaurantOverlay}>취소</button><button onClick={saveRestaurant}>저장</button>
             </footer>
           </section>
         </div>
@@ -4398,7 +4426,9 @@ export default function Home() {
         const record = pending[index];
         let latitude = Number(record.latitude);
         let longitude = Number(record.longitude);
+        let lookedUpLocation = false;
         if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+          lookedUpLocation = true;
           const addressQueries = [
             record.address.trim(),
             record.address.replace(/\s+(?:지상|지하)?\d+층.*$/i, "").trim(),
@@ -4443,7 +4473,7 @@ export default function Home() {
             createdAt: new Date().toISOString(),
           });
         }
-        if (index < pending.length - 1) await pause(850);
+        if (lookedUpLocation && index < pending.length - 1) await pause(850);
       }
       if (imported.length) setRestaurants((current) => [...imported, ...current]);
       const resultLines = [`맛집 ${imported.length}곳을 추가했어요.`];
