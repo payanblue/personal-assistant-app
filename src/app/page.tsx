@@ -303,6 +303,27 @@ type Restaurant = {
   createdAt: string;
 };
 
+type RestaurantImportRecord = {
+  name: string;
+  address: string;
+  category: Exclude<RestaurantCategory, "전체">;
+  tags?: string[];
+  memo?: string;
+  mapUrl?: string;
+  rating?: number;
+  visited?: boolean;
+  latitude?: number;
+  longitude?: number;
+};
+
+type RestaurantImportPayload = {
+  app: "personal-assistant-app";
+  type: "restaurants";
+  version: 1;
+  exportedAt: string;
+  restaurants: RestaurantImportRecord[];
+};
+
 type LegacyRestaurant = Omit<Restaurant, "category"> & {
   category: Restaurant["category"] | "국밥·면";
 };
@@ -3613,6 +3634,7 @@ function MoreView({
   exportData,
   exportText,
   importData,
+  importRestaurantData,
   memos,
   setMemos,
   events,
@@ -3621,12 +3643,15 @@ function MoreView({
   exportData: () => void;
   exportText: () => void;
   importData: (file: File) => void;
+  importRestaurantData: (file: File) => Promise<void>;
   memos: Memo[];
   setMemos: React.Dispatch<React.SetStateAction<Memo[]>>;
   events: CalendarEvent[];
   setEvents: React.Dispatch<React.SetStateAction<CalendarEvent[]>>;
 }) {
   const fileInput = useRef<HTMLInputElement | null>(null);
+  const restaurantFileInput = useRef<HTMLInputElement | null>(null);
+  const [restaurantsImporting, setRestaurantsImporting] = useState(false);
   const [anniversaryOpen, setAnniversaryOpen] = useState(false);
   const [completedTrashOpen, setCompletedTrashOpen] = useState(false);
   const [anniversaryEditor, setAnniversaryEditor] = useState(false);
@@ -3738,6 +3763,28 @@ function MoreView({
           onChange={(event) => {
             const file = event.target.files?.[0];
             if (file) importData(file);
+            event.target.value = "";
+          }}
+        />
+        <button onClick={() => restaurantFileInput.current?.click()} disabled={restaurantsImporting}>
+          <span>🍽️</span>
+          <div>
+            <strong>{restaurantsImporting ? "맛집 위치 확인 중…" : "맛집 일괄 불러오기"}</strong>
+            <small>기존 자료는 유지하고 중복을 제외해 추가</small>
+          </div>
+          <b>＋</b>
+        </button>
+        <input
+          ref={restaurantFileInput}
+          className="hidden-file"
+          type="file"
+          accept="application/json,.json"
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            if (file) {
+              setRestaurantsImporting(true);
+              void importRestaurantData(file).finally(() => setRestaurantsImporting(false));
+            }
             event.target.value = "";
           }}
         />
@@ -4296,6 +4343,101 @@ export default function Home() {
       window.alert("이 앱에서 만든 올바른 백업 파일이 아닙니다.");
     }
   };
+  const importRestaurantData = async (file: File) => {
+    const restaurantCategoryValues = new Set(
+      restaurantCategories.filter((item) => item.id !== "전체").map((item) => item.id),
+    );
+    const identity = (value: string) => value.replace(/[^0-9a-z가-힣]/gi, "").toLowerCase();
+    const pause = (milliseconds: number) => new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+    try {
+      const payload = JSON.parse(await file.text()) as RestaurantImportPayload;
+      if (
+        payload.app !== "personal-assistant-app" ||
+        payload.type !== "restaurants" ||
+        payload.version !== 1 ||
+        !Array.isArray(payload.restaurants)
+      ) throw new Error("invalid restaurant import");
+      const validRecords = payload.restaurants.filter((record) =>
+        typeof record?.name === "string" &&
+        record.name.trim().length >= 2 &&
+        typeof record.address === "string" &&
+        record.address.trim().length >= 4 &&
+        restaurantCategoryValues.has(record.category),
+      );
+      if (!validRecords.length) throw new Error("empty restaurant import");
+      if (!window.confirm(`${validRecords.length}곳을 기존 맛집에 추가할까요?\n같은 상호명은 자동으로 건너뜁니다.`)) return;
+
+      const existingNames = new Set(restaurants.map((item) => identity(item.name)));
+      const importNames = new Set<string>();
+      const pending = validRecords.filter((record) => {
+        const key = identity(record.name);
+        if (existingNames.has(key) || importNames.has(key)) return false;
+        importNames.add(key);
+        return true;
+      });
+      const skipped = validRecords.length - pending.length;
+      const imported: Restaurant[] = [];
+      const failed: string[] = [];
+      for (let index = 0; index < pending.length; index += 1) {
+        const record = pending[index];
+        let latitude = Number(record.latitude);
+        let longitude = Number(record.longitude);
+        if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+          const addressQueries = [
+            record.address.trim(),
+            record.address.replace(/\s+(?:지상|지하)?\d+층.*$/i, "").trim(),
+            record.address.replace(/\s+\d+(?:-\d+)?(?:\s.*)?$/, "").trim(),
+            likelyRestaurantLocationQuery(record.address),
+          ].filter((value, valueIndex, all) => value && all.indexOf(value) === valueIndex);
+          let place: PlaceSearchResult | undefined;
+          for (const query of addressQueries) {
+            try {
+              const response = await fetch(
+                `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/api/place-search?q=${encodeURIComponent(query)}&limit=8`,
+              );
+              if (response.ok) {
+                const places = (await response.json()) as PlaceSearchResult[];
+                place = places[0];
+                if (place) break;
+              }
+            } catch {
+              /* 다음 주소 표현으로 다시 시도 */
+            }
+          }
+          if (place) {
+            latitude = Number(place.lat);
+            longitude = Number(place.lon);
+          }
+        }
+        if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+          failed.push(record.name);
+        } else {
+          imported.push({
+            id: Date.now() + index,
+            name: record.name.trim(),
+            address: record.address.trim(),
+            latitude,
+            longitude,
+            category: record.category,
+            tags: Array.isArray(record.tags) ? record.tags.filter((tag) => typeof tag === "string") : [],
+            memo: typeof record.memo === "string" ? record.memo : "",
+            mapUrl: typeof record.mapUrl === "string" ? record.mapUrl : undefined,
+            rating: typeof record.rating === "number" && record.rating > 0 ? Math.min(5, Math.round(record.rating * 2) / 2) : undefined,
+            visited: record.visited === true,
+            createdAt: new Date().toISOString(),
+          });
+        }
+        if (index < pending.length - 1) await pause(850);
+      }
+      if (imported.length) setRestaurants((current) => [...imported, ...current]);
+      const resultLines = [`맛집 ${imported.length}곳을 추가했어요.`];
+      if (skipped) resultLines.push(`이미 있던 ${skipped}곳은 건너뛰었어요.`);
+      if (failed.length) resultLines.push(`위치를 찾지 못한 ${failed.length}곳: ${failed.join(", ")}`);
+      window.alert(resultLines.join("\n"));
+    } catch {
+      window.alert("올바른 맛집 일괄 등록 파일이 아닙니다.");
+    }
+  };
   const views = {
     home: (
       <HomeView
@@ -4331,6 +4473,7 @@ export default function Home() {
         exportData={exportData}
         exportText={exportText}
         importData={importData}
+        importRestaurantData={importRestaurantData}
         memos={memos}
         setMemos={setMemos}
         events={events}
