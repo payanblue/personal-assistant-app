@@ -1189,7 +1189,24 @@ h1 {
   padding-bottom: 2px;
 }
 .work-filters button {
+  flex: 1 0 auto;
   white-space: nowrap;
+}
+.work-kind {
+  grid-column: 1 / 4;
+  grid-row: 2;
+  justify-self: start;
+  margin-left: 26px;
+  padding: 2px 7px;
+  border-radius: 9px;
+  background: #e4eee8;
+  color: #3f7254;
+  font-size: 9px;
+  font-weight: 800;
+}
+.work-kind.life {
+  background: #f4ead8;
+  color: #87602e;
 }
 .work-menu > div {
   display: flex;

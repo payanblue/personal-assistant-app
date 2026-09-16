@@ -1605,7 +1605,7 @@ function WorkView({
   items: WorkItem[];
   setItems: React.Dispatch<React.SetStateAction<WorkItem[]>>;
 }) {
-  const [filter, setFilter] = useState<"all" | "trash">("all");
+  const [filter, setFilter] = useState<"work" | "life" | "trash">("work");
   const [editingId, setEditingId] = useState<number | null>(null);
   const [draggingId, setDraggingId] = useState<number | null>(null);
   const dragSourceId = useRef<number | null>(null);
@@ -1613,9 +1613,13 @@ function WorkView({
   const dragAfterTarget = useRef(false);
   const [title, setTitle] = useState("");
   const quickInputRef = useRef<HTMLInputElement | null>(null);
-  const visibleItems = items.filter((item) =>
-    filter === "trash" ? item.archived : !item.archived,
-  );
+  const isLifeItem = (item: WorkItem) => item.project === "생활";
+  const activeLabel = filter === "life" ? "생활 메모" : "업무 메모";
+  const visibleItems = items.filter((item) => {
+    if (filter === "trash") return item.archived;
+    if (item.archived) return false;
+    return filter === "life" ? isLifeItem(item) : !isLifeItem(item);
+  });
   const visibleItemsRef = useRef<WorkItem[]>(visibleItems);
   useEffect(() => { visibleItemsRef.current = visibleItems; }, [visibleItems]);
   const addItem = () => {
@@ -1625,7 +1629,7 @@ function WorkView({
         id: Date.now(),
         title: title.trim(),
         details: "",
-        project: "업무",
+        project: filter === "life" ? "생활" : "업무",
         completed: false,
         archived: false,
         createdAt: "방금 전",
@@ -1666,7 +1670,7 @@ function WorkView({
   const trashItem = (id: number) => {
     if (
       window.confirm(
-        "이 업무 메모를 휴지통으로 옮길까요? 휴지통에서 복구할 수 있어요.",
+        `이 ${activeLabel}를 휴지통으로 옮길까요? 휴지통에서 복구할 수 있어요.`,
       )
     )
       setItems((current) =>
@@ -1678,7 +1682,7 @@ function WorkView({
   const permanentlyDelete = (id: number) => {
     if (
       window.confirm(
-        "이 업무 기록을 영구 삭제할까요? 이 작업은 되돌릴 수 없습니다.",
+        "이 메모를 영구 삭제할까요? 이 작업은 되돌릴 수 없습니다.",
       )
     )
       setItems((current) => current.filter((item) => item.id !== id));
@@ -1724,7 +1728,7 @@ function WorkView({
       const handle = (event.target as HTMLElement).closest(".drag-handle");
       const row = handle?.closest<HTMLElement>(".work-line");
       const list = row?.parentElement;
-      if (!row || !list || filter !== "all") return;
+      if (!row || !list || filter === "trash") return;
       const sourceIndex = Array.from(
         list.querySelectorAll(":scope > .work-line"),
       ).indexOf(row);
@@ -1753,25 +1757,43 @@ function WorkView({
   return (
     <>
       <PageHeader
-        title={filter === "trash" ? "업무 메모 휴지통" : "업무 메모"}
-        action={filter === "all" ? "＋" : undefined}
+        title={filter === "trash" ? "메모 휴지통" : activeLabel}
+        action={filter !== "trash" ? "＋" : undefined}
         onAction={() => quickInputRef.current?.focus()}
       />
       <div className="filter-row work-filters">
         <button
-          className={filter === "all" ? "selected" : ""}
-          onClick={() => setFilter("all")}
+          className={filter === "work" ? "selected" : ""}
+          onClick={() => {
+            setFilter("work");
+            setEditingId(null);
+            setTitle("");
+          }}
         >
           업무 메모
         </button>
         <button
+          className={filter === "life" ? "selected" : ""}
+          onClick={() => {
+            setFilter("life");
+            setEditingId(null);
+            setTitle("");
+          }}
+        >
+          생활 메모
+        </button>
+        <button
           className={filter === "trash" ? "selected" : ""}
-          onClick={() => setFilter("trash")}
+          onClick={() => {
+            setFilter("trash");
+            setEditingId(null);
+            setTitle("");
+          }}
         >
           휴지통
         </button>
       </div>
-      {filter === "all" && (
+      {filter !== "trash" && (
         <section className="work-quick-entry">
           <input
             ref={quickInputRef}
@@ -1783,7 +1805,7 @@ function WorkView({
             onKeyDown={(event) => {
               if (event.key === "Enter") addItem();
             }}
-            placeholder="업무 메모를 한 줄로 입력하세요"
+            placeholder={`${activeLabel}를 한 줄로 입력하세요`}
           />
           <button type="button" onClick={addItem}>
             추가
@@ -1846,7 +1868,7 @@ function WorkView({
               >
                 {item.title}
               </button>
-              {filter === "all" ? (
+              {filter !== "trash" ? (
                 <div className="line-actions">
                   <button
                     disabled={index === 0}
@@ -1889,6 +1911,11 @@ function WorkView({
                   </button>
                 </div>
               )}
+              {filter === "trash" && (
+                <span className={`work-kind ${isLifeItem(item) ? "life" : ""}`}>
+                  {isLifeItem(item) ? "생활" : "업무"}
+                </span>
+              )}
             </article>
           ),
         )}
@@ -1897,11 +1924,11 @@ function WorkView({
             <strong>
               {filter === "trash"
                 ? "휴지통이 비어 있어요"
-                : "업무 메모가 없어요"}
+                : `${activeLabel}가 없어요`}
             </strong>
             <p>
               {filter === "trash"
-                ? "삭제한 업무 메모가 여기 표시됩니다."
+                ? "삭제한 업무·생활 메모가 여기 표시됩니다."
                 : "위 입력칸에 한 줄씩 바로 추가해 보세요."}
             </p>
           </div>
@@ -4354,7 +4381,9 @@ export default function Home() {
     window.alert(`백업 파일을 휴대폰의 다운로드 폴더에 저장했어요.\n파일명: ${fileName}`);
   };
   const exportText = () => {
-    const text = ["나의 비서 기록", "", "[메모]", ...memos.filter(item => !item.deleted).map(item => `- ${item.title}${item.content ? `: ${item.content}` : ""}`), "", "[업무 메모]", ...workItems.filter(item => !item.archived).map(item => `- ${item.completed ? "[완료] " : ""}${item.title}`), "", "[일정]", ...events.filter(item => !item.deleted).map(item => `- ${item.date} ${item.allDay ? "종일" : item.time} | ${item.title}${item.repeatYearly ? " (매년)" : ""}`), "", "[맛집]", ...restaurants.map(item => `- ${item.name} | ${item.category} | ${item.address}`)].join("\n");
+    const activeWorkItems = workItems.filter(item => !item.archived && item.project !== "생활");
+    const activeLifeItems = workItems.filter(item => !item.archived && item.project === "생활");
+    const text = ["나의 비서 기록", "", "[메모]", ...memos.filter(item => !item.deleted).map(item => `- ${item.title}${item.content ? `: ${item.content}` : ""}`), "", "[업무 메모]", ...activeWorkItems.map(item => `- ${item.completed ? "[완료] " : ""}${item.title}`), "", "[생활 메모]", ...activeLifeItems.map(item => `- ${item.completed ? "[완료] " : ""}${item.title}`), "", "[일정]", ...events.filter(item => !item.deleted).map(item => `- ${item.date} ${item.allDay ? "종일" : item.time} | ${item.title}${item.repeatYearly ? " (매년)" : ""}`), "", "[맛집]", ...restaurants.map(item => `- ${item.name} | ${item.category} | ${item.address}`)].join("\n");
     const url = URL.createObjectURL(new Blob([text], { type: "text/plain;charset=utf-8" }));
     const link = document.createElement("a"); link.href = url; link.download = `나의비서-기록-${localDateKey()}.txt`; link.click(); URL.revokeObjectURL(url);
   };
