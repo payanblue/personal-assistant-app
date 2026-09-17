@@ -2090,8 +2090,10 @@ h1 {
 .work-line-list {
   display: grid;
   gap: 8px;
+  overflow: visible;
 }
 .work-line {
+  position: relative;
   display: grid;
   grid-template-columns: 18px 22px minmax(0, 1fr) auto;
   align-items: center;
@@ -2102,6 +2104,7 @@ h1 {
   border-radius: 14px;
   background: var(--card-background);
 }
+.work-line.menu-open { z-index: 30; }
 .work-line.editing {
   grid-template-columns: 18px minmax(0, 1fr) auto auto;
 }

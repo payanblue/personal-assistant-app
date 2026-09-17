@@ -2082,7 +2082,7 @@ function WorkView({
             </article>
           ) : (
             <article
-              className={`work-line ${item.completed ? "completed" : ""} ${item.pinned ? "pinned" : ""} ${draggingId === item.id ? "dragging" : ""}`}
+              className={`work-line ${item.completed ? "completed" : ""} ${item.pinned ? "pinned" : ""} ${menuId === item.id ? "menu-open" : ""} ${draggingId === item.id ? "dragging" : ""}`}
               key={item.id}
             >
               <span className="drag-handle" aria-hidden="true">
