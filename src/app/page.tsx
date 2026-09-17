@@ -4787,7 +4787,7 @@ export default function Home() {
         if (backup.weatherLocation) setWeatherLocation(backup.weatherLocation);
         if (backup.savedWeatherLocations) setSavedWeatherLocations(backup.savedWeatherLocations);
         if (backup.chargers) setChargers(backup.chargers);
-        setRestaurants(restoredRestaurants);
+        if (backup.restaurants) setRestaurants(restoredRestaurants);
         if (backup.appSettings)
           setAppSettings((current) => ({ ...current, ...backup.appSettings }));
       } else {
