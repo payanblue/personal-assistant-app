@@ -226,6 +226,7 @@ type Memo = {
   completed?: boolean;
   completedAt?: string;
   createdAt: string;
+  updatedAt?: string;
 };
 
 const sampleMemos: Memo[] = [];
@@ -237,7 +238,10 @@ type WorkItem = {
   project: string;
   completed: boolean;
   archived?: boolean;
+  pinned?: boolean;
+  completedAt?: string;
   createdAt: string;
+  updatedAt?: string;
 };
 
 const sampleWorkItems: WorkItem[] = [];
@@ -272,6 +276,18 @@ type BackupPayload = {
   savedWeatherLocations?: WeatherLocation[];
   chargers?: ChargerFavorite[];
   restaurants?: Restaurant[];
+  appSettings?: AppSettings;
+};
+
+type AppSettings = {
+  autoDeleteCompletedMemos: boolean;
+  lastBackupAttemptAt?: string;
+  lastBackupFileName?: string;
+  lastBackupOutcome?: "shared" | "downloaded" | "cancelled";
+};
+
+const defaultAppSettings: AppSettings = {
+  autoDeleteCompletedMemos: false,
 };
 
 type RestaurantCategory =
@@ -432,6 +448,7 @@ const COMPLETED_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 
 function retainRecentCompleted<T extends { completed?: boolean; completedAt?: string }>(
   items: T[],
+  autoDelete = false,
 ): T[] {
   const now = Date.now();
   const nowIso = new Date(now).toISOString();
@@ -441,6 +458,7 @@ function retainRecentCompleted<T extends { completed?: boolean; completedAt?: st
     )
     .filter(
       (item) =>
+        !autoDelete ||
         !item.completed ||
         !item.completedAt ||
         now - Date.parse(item.completedAt) < COMPLETED_RETENTION_MS,
@@ -1350,12 +1368,51 @@ function MemoView({
   setMemos: React.Dispatch<React.SetStateAction<Memo[]>>;
 }) {
   const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState<"all" | "pinned" | "trash">("all");
+  const [filter, setFilter] = useState<"all" | "pinned" | "completed" | "trash">("all");
   const [editing, setEditing] = useState<Memo | null>(null);
   const [writing, setWriting] = useState(false);
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [category, setCategory] = useState<Memo["category"]>("개인");
+  const [copiedId, setCopiedId] = useState<number | null>(null);
+  const displayMemoTime = (value: string) => {
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return value;
+    return parsed.toLocaleString("ko-KR", {
+      month: "numeric",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  };
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      try {
+        const saved = window.localStorage.getItem("my-assistant-memo-draft");
+        if (!saved) return;
+        const draft = JSON.parse(saved) as { editingId?: number; title?: string; content?: string; category?: Memo["category"] };
+        setTitle(draft.title ?? "");
+        setContent(draft.content ?? "");
+        setCategory(draft.category ?? "개인");
+        setEditing(draft.editingId ? memos.find((memo) => memo.id === draft.editingId) ?? null : null);
+        if ((draft.title ?? "").trim() || (draft.content ?? "").trim()) setWriting(true);
+      } catch {
+        window.localStorage.removeItem("my-assistant-memo-draft");
+      }
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [memos]);
+
+  useEffect(() => {
+    if (!writing) return;
+    window.localStorage.setItem("my-assistant-memo-draft", JSON.stringify({
+      editingId: editing?.id,
+      title,
+      content,
+      category,
+    }));
+  }, [writing, editing, title, content, category]);
 
   const openNew = () => {
     setEditing(null);
@@ -1371,6 +1428,13 @@ function MemoView({
     setCategory(memo.category);
     setWriting(true);
   };
+  const closeEditor = () => {
+    setWriting(false);
+    setEditing(null);
+    setTitle("");
+    setContent("");
+    window.localStorage.removeItem("my-assistant-memo-draft");
+  };
   const saveMemo = () => {
     if (!title.trim() && !content.trim()) return;
     if (editing)
@@ -1382,6 +1446,7 @@ function MemoView({
                 title: title.trim() || "제목 없는 메모",
                 content: content.trim(),
                 category,
+                updatedAt: new Date().toISOString(),
               }
             : item,
         ),
@@ -1396,16 +1461,19 @@ function MemoView({
           pinned: false,
           deleted: false,
           completed: false,
-          createdAt: "방금 전",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
         },
         ...items,
       ]);
-    setWriting(false);
+    closeEditor();
   };
   const visibleMemos = memos
-    .filter((memo) =>
-      filter === "trash" ? memo.deleted : !memo.deleted && !memo.completed,
-    )
+    .filter((memo) => {
+      if (filter === "trash") return memo.deleted;
+      if (filter === "completed") return !memo.deleted && memo.completed;
+      return !memo.deleted && !memo.completed;
+    })
     .filter((memo) => filter !== "pinned" || memo.pinned)
     .filter((memo) =>
       `${memo.title} ${memo.content}`
@@ -1416,7 +1484,11 @@ function MemoView({
 
   return (
     <>
-      <PageHeader title={filter === "trash" ? "휴지통" : "메모"} action="＋" />
+      <PageHeader
+        title={filter === "trash" ? "휴지통" : filter === "completed" ? "완료 메모" : "메모"}
+        action={!writing && (filter === "all" || filter === "pinned") ? "＋" : undefined}
+        onAction={openNew}
+      />
       <label className="memo-search">
         ⌕
         <input
@@ -1437,6 +1509,12 @@ function MemoView({
           onClick={() => setFilter("pinned")}
         >
           ★ 중요
+        </button>
+        <button
+          className={filter === "completed" ? "selected" : ""}
+          onClick={() => setFilter("completed")}
+        >
+          완료
         </button>
         <button
           className={filter === "trash" ? "selected" : ""}
@@ -1470,7 +1548,7 @@ function MemoView({
               <option>아이디어</option>
               <option>생활</option>
             </select>
-            <button className="cancel" onClick={() => setWriting(false)}>
+            <button className="cancel" onClick={closeEditor}>
               취소
             </button>
             <button onClick={saveMemo}>저장</button>
@@ -1491,7 +1569,7 @@ function MemoView({
               </span>
               <small>
                 {memo.pinned && "★ 중요 · "}
-                {memo.createdAt}
+                {displayMemoTime(memo.updatedAt || memo.createdAt)}
               </small>
             </div>
             <h3>{memo.title}</h3>
@@ -1527,6 +1605,19 @@ function MemoView({
               ) : (
                 <>
                   <button
+                    onClick={async () => {
+                      try {
+                        await navigator.clipboard.writeText([memo.title, memo.content].filter(Boolean).join("\n"));
+                        setCopiedId(memo.id);
+                        window.setTimeout(() => setCopiedId(null), 1400);
+                      } catch {
+                        window.alert("복사하지 못했어요.");
+                      }
+                    }}
+                  >
+                    {copiedId === memo.id ? "복사됨" : "복사"}
+                  </button>
+                  <button
                     onClick={() =>
                       setMemos((items) =>
                         items.map((item) =>
@@ -1551,6 +1642,7 @@ function MemoView({
                                 completedAt: item.completed
                                   ? undefined
                                   : new Date().toISOString(),
+                                updatedAt: new Date().toISOString(),
                               }
                             : item,
                         ),
@@ -1589,7 +1681,7 @@ function MemoView({
           </div>
         )}
       </section>
-      {filter !== "trash" && !writing && (
+      {filter !== "trash" && filter !== "completed" && !writing && (
         <button className="floating-button" onClick={openNew}>
           ＋ 새 메모
         </button>
@@ -1607,65 +1699,156 @@ function WorkView({
 }) {
   const [filter, setFilter] = useState<"work" | "life" | "trash">("work");
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [editTitle, setEditTitle] = useState("");
+  const [search, setSearch] = useState("");
+  const [menuId, setMenuId] = useState<number | null>(null);
+  const [showCompleted, setShowCompleted] = useState(false);
+  const [copiedId, setCopiedId] = useState<number | null>(null);
+  const [quickDrafts, setQuickDrafts] = useState({ work: "", life: "" });
+  const [undoMove, setUndoMove] = useState<{
+    id: number;
+    from: "work" | "life";
+  } | null>(null);
   const [draggingId, setDraggingId] = useState<number | null>(null);
   const dragSourceId = useRef<number | null>(null);
   const dragTargetId = useRef<number | null>(null);
   const dragAfterTarget = useRef(false);
-  const [title, setTitle] = useState("");
+  const skipInitialDraftSave = useRef(true);
+  const skipInitialTabSave = useRef(true);
+  const workPreferencesLoaded = useRef(false);
   const quickInputRef = useRef<HTMLInputElement | null>(null);
   const isLifeItem = (item: WorkItem) => item.project === "생활";
   const activeLabel = filter === "life" ? "생활 메모" : "업무 메모";
-  const visibleItems = items.filter((item) => {
+  const categoryItems = items.filter((item) => {
     if (filter === "trash") return item.archived;
     if (item.archived) return false;
     return filter === "life" ? isLifeItem(item) : !isLifeItem(item);
   });
+  const searchedItems = categoryItems.filter((item) =>
+    item.title.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()),
+  );
+  const orderedItems = filter === "trash"
+    ? searchedItems
+    : [
+        ...searchedItems.filter((item) => item.pinned && !item.completed),
+        ...searchedItems.filter((item) => !item.pinned && !item.completed),
+        ...searchedItems.filter((item) => item.pinned && item.completed),
+        ...searchedItems.filter((item) => !item.pinned && item.completed),
+      ];
+  const visibleItems = filter === "trash" || showCompleted
+    ? orderedItems
+    : orderedItems.filter((item) => !item.completed);
+  const completedCount = categoryItems.filter((item) => item.completed).length;
   const visibleItemsRef = useRef<WorkItem[]>(visibleItems);
   useEffect(() => { visibleItemsRef.current = visibleItems; }, [visibleItems]);
+
+  useEffect(() => {
+    if (workPreferencesLoaded.current) return;
+    const timer = window.setTimeout(() => {
+      try {
+        if (localStorage.getItem("my-assistant-last-work-tab") === "life") {
+          setFilter("life");
+        }
+        const saved = JSON.parse(
+          localStorage.getItem("my-assistant-work-drafts") || "{}",
+        ) as Partial<typeof quickDrafts>;
+        setQuickDrafts({ work: saved.work || "", life: saved.life || "" });
+        const editDraft = JSON.parse(
+          localStorage.getItem("my-assistant-work-edit-draft") || "null",
+        ) as { id?: number; title?: string } | null;
+        if (editDraft?.id && items.some((item) => item.id === editDraft.id)) {
+          setEditingId(editDraft.id);
+          setEditTitle(editDraft.title || "");
+        }
+      } catch {
+        // 손상된 임시 저장은 실제 메모 데이터에 영향을 주지 않는다.
+      }
+      workPreferencesLoaded.current = true;
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [items]);
+
+  useEffect(() => {
+    if (skipInitialDraftSave.current) {
+      skipInitialDraftSave.current = false;
+      return;
+    }
+    localStorage.setItem("my-assistant-work-drafts", JSON.stringify(quickDrafts));
+  }, [quickDrafts]);
+
+  useEffect(() => {
+    if (skipInitialTabSave.current) {
+      skipInitialTabSave.current = false;
+      return;
+    }
+    if (filter !== "trash") {
+      localStorage.setItem("my-assistant-last-work-tab", filter);
+    }
+  }, [filter]);
+
+  useEffect(() => {
+    if (editingId === null) return;
+    localStorage.setItem(
+      "my-assistant-work-edit-draft",
+      JSON.stringify({ id: editingId, title: editTitle }),
+    );
+  }, [editingId, editTitle]);
+
+  useEffect(() => {
+    if (menuId === null) return;
+    const closeMenu = (event: PointerEvent) => {
+      if (!(event.target as HTMLElement).closest(".work-row-menu")) setMenuId(null);
+    };
+    document.addEventListener("pointerdown", closeMenu);
+    return () => document.removeEventListener("pointerdown", closeMenu);
+  }, [menuId]);
+
+  const currentDraft = filter === "life" ? quickDrafts.life : quickDrafts.work;
+  const setCurrentDraft = (value: string) =>
+    setQuickDrafts((current) => ({
+      ...current,
+      [filter === "life" ? "life" : "work"]: value,
+    }));
   const addItem = () => {
-    if (!title.trim()) return;
+    if (filter === "trash" || !currentDraft.trim()) return;
+    const now = new Date().toISOString();
     setItems((current) => [
       {
         id: Date.now(),
-        title: title.trim(),
+        title: currentDraft.trim(),
         details: "",
         project: filter === "life" ? "생활" : "업무",
         completed: false,
         archived: false,
-        createdAt: "방금 전",
+        createdAt: now,
+        updatedAt: now,
       },
       ...current,
     ]);
-    setTitle("");
+    setCurrentDraft("");
   };
   const openEditItem = (item: WorkItem) => {
     setEditingId(item.id);
-    setTitle(item.title);
+    setEditTitle(item.title);
+    setMenuId(null);
   };
   const saveEdit = () => {
-    if (!title.trim() || editingId === null) return;
+    if (!editTitle.trim() || editingId === null) return;
     setItems((current) =>
       current.map((item) =>
-        item.id === editingId ? { ...item, title: title.trim() } : item,
+        item.id === editingId
+          ? { ...item, title: editTitle.trim(), updatedAt: new Date().toISOString() }
+          : item,
       ),
     );
     setEditingId(null);
-    setTitle("");
+    setEditTitle("");
+    localStorage.removeItem("my-assistant-work-edit-draft");
   };
-  const moveItem = (id: number, direction: -1 | 1) => {
-    setItems((current) => {
-      const currentIndex = current.findIndex((item) => item.id === id);
-      const visibleIndex = visibleItems.findIndex((item) => item.id === id);
-      const targetId = visibleItems[visibleIndex + direction]?.id;
-      const targetIndex = current.findIndex((item) => item.id === targetId);
-      if (currentIndex < 0 || targetIndex < 0) return current;
-      const next = [...current];
-      [next[currentIndex], next[targetIndex]] = [
-        next[targetIndex],
-        next[currentIndex],
-      ];
-      return next;
-    });
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditTitle("");
+    localStorage.removeItem("my-assistant-work-edit-draft");
   };
   const trashItem = (id: number) => {
     if (
@@ -1687,6 +1870,52 @@ function WorkView({
     )
       setItems((current) => current.filter((item) => item.id !== id));
   };
+  const copyItem = async (item: WorkItem) => {
+    try {
+      await navigator.clipboard.writeText(item.title);
+      setCopiedId(item.id);
+      window.setTimeout(() => setCopiedId(null), 1400);
+    } catch {
+      window.alert("복사하지 못했어요. 브라우저의 클립보드 권한을 확인해 주세요.");
+    }
+    setMenuId(null);
+  };
+  const moveToOtherTab = (item: WorkItem) => {
+    const from = isLifeItem(item) ? "life" : "work";
+    setItems((current) =>
+      current.map((work) =>
+        work.id === item.id
+          ? {
+              ...work,
+              project: from === "life" ? "업무" : "생활",
+              updatedAt: new Date().toISOString(),
+            }
+          : work,
+      ),
+    );
+    setUndoMove({ id: item.id, from });
+    setMenuId(null);
+  };
+  const undoLastMove = () => {
+    if (!undoMove) return;
+    setItems((current) =>
+      current.map((item) =>
+        item.id === undoMove.id
+          ? { ...item, project: undoMove.from === "life" ? "생활" : "업무" }
+          : item,
+      ),
+    );
+    setUndoMove(null);
+  };
+  const shortTime = (value: string) => {
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return value;
+    const today = new Date();
+    if (parsed.toDateString() === today.toDateString()) {
+      return parsed.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
+    }
+    return parsed.toLocaleDateString("ko-KR", { month: "numeric", day: "numeric" });
+  };
   useEffect(() => {
     let activeRow: HTMLElement | null = null;
     let startY = 0;
@@ -1696,6 +1925,9 @@ function WorkView({
       const sourceId = dragSourceId.current;
       const targetId = dragTargetId.current;
       if (sourceId !== null && targetId !== null && sourceId !== targetId) setItems((current) => {
+        const source = current.find((item) => item.id === sourceId);
+        const target = current.find((item) => item.id === targetId);
+        if (!source || !target || Boolean(source.pinned) !== Boolean(target.pinned) || source.completed !== target.completed) return current;
         const from = current.findIndex((item) => item.id === sourceId);
         const to = current.findIndex((item) => item.id === targetId);
         if (from < 0 || to < 0) return current;
@@ -1728,7 +1960,7 @@ function WorkView({
       const handle = (event.target as HTMLElement).closest(".drag-handle");
       const row = handle?.closest<HTMLElement>(".work-line");
       const list = row?.parentElement;
-      if (!row || !list || filter === "trash") return;
+      if (!row || !list || filter === "trash" || Boolean(search.trim())) return;
       const sourceIndex = Array.from(
         list.querySelectorAll(":scope > .work-line"),
       ).indexOf(row);
@@ -1752,7 +1984,7 @@ function WorkView({
       document.removeEventListener("pointerup", stop);
       document.removeEventListener("pointercancel", stop);
     };
-  }, [filter, setItems]);
+  }, [filter, search, setItems]);
 
   return (
     <>
@@ -1766,8 +1998,7 @@ function WorkView({
           className={filter === "work" ? "selected" : ""}
           onClick={() => {
             setFilter("work");
-            setEditingId(null);
-            setTitle("");
+            setMenuId(null);
           }}
         >
           업무 메모
@@ -1776,8 +2007,7 @@ function WorkView({
           className={filter === "life" ? "selected" : ""}
           onClick={() => {
             setFilter("life");
-            setEditingId(null);
-            setTitle("");
+            setMenuId(null);
           }}
         >
           생활 메모
@@ -1786,8 +2016,7 @@ function WorkView({
           className={filter === "trash" ? "selected" : ""}
           onClick={() => {
             setFilter("trash");
-            setEditingId(null);
-            setTitle("");
+            setMenuId(null);
           }}
         >
           휴지통
@@ -1797,13 +2026,10 @@ function WorkView({
         <section className="work-quick-entry">
           <input
             ref={quickInputRef}
-            value={editingId === null ? title : ""}
-            onChange={(event) => {
-              setEditingId(null);
-              setTitle(event.target.value);
-            }}
+            value={currentDraft}
+            onChange={(event) => setCurrentDraft(event.target.value)}
             onKeyDown={(event) => {
-              if (event.key === "Enter") addItem();
+              if (event.key === "Enter" && !event.nativeEvent.isComposing) addItem();
             }}
             placeholder={`${activeLabel}를 한 줄로 입력하세요`}
           />
@@ -1812,37 +2038,51 @@ function WorkView({
           </button>
         </section>
       )}
+      <div className="work-toolbar">
+        <input
+          type="search"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          placeholder={`${activeLabel} 검색`}
+          aria-label={`${activeLabel} 검색`}
+        />
+        {filter !== "trash" && completedCount > 0 && (
+          <button type="button" onClick={() => setShowCompleted((value) => !value)}>
+            완료 {completedCount}개 {showCompleted ? "접기" : "보기"}
+          </button>
+        )}
+      </div>
+      {undoMove && (
+        <div className="undo-toast">
+          다른 탭으로 옮겼어요.
+          <button type="button" onClick={undoLastMove}>되돌리기</button>
+        </div>
+      )}
       <section className="work-line-list">
-        {visibleItems.map((item, index) =>
+        {visibleItems.map((item) =>
           editingId === item.id ? (
             <article className="work-line editing" key={item.id}>
               <span className="drag-handle">⠿</span>
               <input
-                value={title}
-                onChange={(event) => setTitle(event.target.value)}
+                value={editTitle}
+                onChange={(event) => setEditTitle(event.target.value)}
                 onKeyDown={(event) => {
-                  if (event.key === "Enter") saveEdit();
-                  if (event.key === "Escape") {
-                    setEditingId(null);
-                    setTitle("");
-                  }
+                  if (event.key === "Enter" && !event.nativeEvent.isComposing) saveEdit();
+                  if (event.key === "Escape") cancelEdit();
                 }}
                 autoFocus
               />
               <button onClick={saveEdit}>저장</button>
               <button
                 className="cancel"
-                onClick={() => {
-                  setEditingId(null);
-                  setTitle("");
-                }}
+                onClick={cancelEdit}
               >
                 취소
               </button>
             </article>
           ) : (
             <article
-              className={`work-line ${item.completed ? "completed" : ""} ${draggingId === item.id ? "dragging" : ""}`}
+              className={`work-line ${item.completed ? "completed" : ""} ${item.pinned ? "pinned" : ""} ${draggingId === item.id ? "dragging" : ""}`}
               key={item.id}
             >
               <span className="drag-handle" aria-hidden="true">
@@ -1856,7 +2096,14 @@ function WorkView({
                   setItems((current) =>
                     current.map((work) =>
                       work.id === item.id
-                        ? { ...work, completed: !work.completed }
+                        ? {
+                            ...work,
+                            completed: !work.completed,
+                            completedAt: !work.completed
+                              ? new Date().toISOString()
+                              : undefined,
+                            updatedAt: new Date().toISOString(),
+                          }
                         : work,
                     ),
                   )
@@ -1866,27 +2113,30 @@ function WorkView({
                 className="work-line-title"
                 onClick={() => openEditItem(item)}
               >
-                {item.title}
+                <span>{item.pinned ? "📌 " : ""}{item.title}</span>
+                <small>{shortTime(item.updatedAt || item.createdAt)}</small>
               </button>
               {filter !== "trash" ? (
-                <div className="line-actions">
+                <div className="work-row-menu">
                   <button
-                    disabled={index === 0}
-                    onClick={() => moveItem(item.id, -1)}
-                    aria-label="위로 이동"
+                    aria-label={`${item.title} 추가 메뉴`}
+                    aria-expanded={menuId === item.id}
+                    onClick={() => setMenuId((current) => current === item.id ? null : item.id)}
                   >
-                    ↑
+                    ⋮
                   </button>
-                  <button
-                    disabled={index === visibleItems.length - 1}
-                    onClick={() => moveItem(item.id, 1)}
-                    aria-label="아래로 이동"
-                  >
-                    ↓
-                  </button>
-                  <button className="danger" onClick={() => trashItem(item.id)}>
-                    삭제
-                  </button>
+                  {menuId === item.id && (
+                    <div className="work-menu-popover">
+                      <button onClick={() => copyItem(item)}>복사</button>
+                      <button onClick={() => {
+                        setItems((current) => current.map((work) => work.id === item.id ? { ...work, pinned: !work.pinned } : work));
+                        setMenuId(null);
+                      }}>{item.pinned ? "고정 해제" : "상단 고정"}</button>
+                      <button onClick={() => moveToOtherTab(item)}>{isLifeItem(item) ? "업무로 이동" : "생활로 이동"}</button>
+                      <button className="danger" onClick={() => { setMenuId(null); trashItem(item.id); }}>휴지통으로</button>
+                    </div>
+                  )}
+                  {copiedId === item.id && <span className="copy-status">복사됨</span>}
                 </div>
               ) : (
                 <div className="line-actions">
@@ -3532,6 +3782,8 @@ function RestaurantMapView({
     if (!sharedPlace) return;
     const parsed = parseSharedRestaurantPlace(sharedPlace);
     let cancelled = false;
+    // 공유 대상이 바뀔 때 편집기를 새 장소 상태로 초기화한다.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     resetFields();
     setActiveBulkId(null);
     openRestaurantOverlay();
@@ -3564,6 +3816,8 @@ function RestaurantMapView({
       clearSharedPlace();
     });
     return () => { cancelled = true; };
+    // searchPlace는 편집기 상태를 닫아 캡처한 현재 공유 장소만 처리한다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sharedPlace, clearSharedPlace]);
 
   return (
@@ -3695,6 +3949,10 @@ function MoreView({
   setMemos,
   events,
   setEvents,
+  appSettings,
+  setAppSettings,
+  hasRestoreSafetyCopy,
+  restoreSafetyCopy,
 }: {
   exportData: () => void;
   exportText: () => void;
@@ -3705,6 +3963,10 @@ function MoreView({
   setMemos: React.Dispatch<React.SetStateAction<Memo[]>>;
   events: CalendarEvent[];
   setEvents: React.Dispatch<React.SetStateAction<CalendarEvent[]>>;
+  appSettings: AppSettings;
+  setAppSettings: React.Dispatch<React.SetStateAction<AppSettings>>;
+  hasRestoreSafetyCopy: boolean;
+  restoreSafetyCopy: () => void;
 }) {
   const fileInput = useRef<HTMLInputElement | null>(null);
   const restaurantFileInput = useRef<HTMLInputElement | null>(null);
@@ -3812,6 +4074,16 @@ function MoreView({
           </div>
           <b>›</b>
         </button>
+        {hasRestoreSafetyCopy && (
+          <button onClick={restoreSafetyCopy}>
+            <span>↶</span>
+            <div>
+              <strong>직전 복원 되돌리기</strong>
+              <small>복원 직전에 자동 보관한 자료로 돌아가기</small>
+            </div>
+            <b>›</b>
+          </button>
+        )}
         <input
           ref={fileInput}
           className="hidden-file"
@@ -3862,6 +4134,22 @@ function MoreView({
       </section>
       <h2 className="settings-title">설정</h2>
       <section className="feature-list compact">
+        <label className="settings-toggle">
+          <input
+            type="checkbox"
+            checked={appSettings.autoDeleteCompletedMemos}
+            onChange={(event) =>
+              setAppSettings((current) => ({
+                ...current,
+                autoDeleteCompletedMemos: event.target.checked,
+              }))
+            }
+          />
+          <div>
+            <strong>완료 메모 30일 후 자동 정리</strong>
+            <small>끄면 완료 기록을 계속 보관해요</small>
+          </div>
+        </label>
         <button onClick={() => setAnniversaryOpen((open) => !open)}>
           <span>✦</span>
           <div>
@@ -3874,7 +4162,7 @@ function MoreView({
           <span>✓</span>
           <div>
             <strong>완료 휴지통</strong>
-            <small>메모는 바로 · 일정은 다음 달부터 30일 보관</small>
+            <small>{appSettings.autoDeleteCompletedMemos ? "메모는 완료 후 30일 · 일정은 다음 달부터 30일 보관" : "완료 메모는 계속 보관 · 일정은 다음 달부터 30일 보관"}</small>
           </div>
           <b>›</b>
         </button>
@@ -3986,8 +4274,8 @@ function MoreView({
         <section className="section-block completed-trash">
           <div className="section-title">
             <div>
-              <h2>완료 휴지통</h2>
-              <small>일정은 완료한 달까지 캘린더에 남고 다음 달부터 30일 보관돼요.</small>
+              <h2>완료 기록</h2>
+              <small>완료 메모는 설정에 따라 보관하고, 일정은 기존 정책을 유지해요.</small>
             </div>
             <button onClick={() => setCompletedTrashOpen(false)}>닫기</button>
           </div>
@@ -4003,7 +4291,7 @@ function MoreView({
                   <span>메모</span>
                   <div>
                     <strong>{memo.title}</strong>
-                    <small>자동 삭제까지 {daysRemaining(memo.completedAt)}일</small>
+                    <small>{appSettings.autoDeleteCompletedMemos ? `자동 정리까지 ${daysRemaining(memo.completedAt)}일` : "계속 보관 중"}</small>
                   </div>
                   <button
                     onClick={() =>
@@ -4054,6 +4342,13 @@ function MoreView({
           브라우저 데이터를 지우거나 컴퓨터를 바꾸기 전에 전체 데이터 백업을
           받아두면 다시 복원할 수 있습니다.
         </p>
+        {appSettings.lastBackupAttemptAt && (
+          <p>
+            마지막 백업 시도: {new Date(appSettings.lastBackupAttemptAt).toLocaleString("ko-KR")}
+            {appSettings.lastBackupFileName ? ` · ${appSettings.lastBackupFileName}` : ""}
+            {appSettings.lastBackupOutcome === "shared" ? " · 공유창 전달(실제 저장 여부 확인 필요)" : appSettings.lastBackupOutcome === "downloaded" ? " · 다운로드 요청" : appSettings.lastBackupOutcome === "cancelled" ? " · 취소됨" : ""}
+          </p>
+        )}
       </div>
     </>
   );
@@ -4079,6 +4374,8 @@ export default function Home() {
   >([defaultWeatherLocation]);
   const [chargers, setChargers] = useState<ChargerFavorite[]>(defaultChargers);
   const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
+  const [appSettings, setAppSettings] = useState<AppSettings>(defaultAppSettings);
+  const [hasRestoreSafetyCopy, setHasRestoreSafetyCopy] = useState(false);
   const [sharedRestaurantFiles, setSharedRestaurantFiles] = useState<File[]>([]);
   const [sharedRestaurantPlace, setSharedRestaurantPlace] = useState<SharedRestaurantPlace | null>(null);
   const [storageReady, setStorageReady] = useState(false);
@@ -4166,10 +4463,24 @@ export default function Home() {
       );
       const savedChargers = window.localStorage.getItem("my-assistant-chargers");
       const savedRestaurants = window.localStorage.getItem("my-assistant-restaurants");
+      const savedSettings = window.localStorage.getItem("my-assistant-settings");
+      let loadedSettings = defaultAppSettings;
+      try {
+        if (savedSettings) {
+          loadedSettings = { ...defaultAppSettings, ...JSON.parse(savedSettings) };
+          setAppSettings(loadedSettings);
+        }
+      } catch {
+        /* 기본 설정 유지 */
+      }
+      setHasRestoreSafetyCopy(Boolean(window.localStorage.getItem("my-assistant-pre-restore-backup")));
       try {
         if (savedMemos)
           setMemos(
-            retainRecentCompleted(JSON.parse(savedMemos) as Memo[]),
+            retainRecentCompleted(
+              JSON.parse(savedMemos) as Memo[],
+              loadedSettings.autoDeleteCompletedMemos,
+            ),
           );
       } catch {
         /* 기본 메모 유지 */
@@ -4264,10 +4575,14 @@ export default function Home() {
       window.localStorage.setItem("my-assistant-restaurants", JSON.stringify(restaurants));
   }, [restaurants, storageReady]);
   useEffect(() => {
+    if (storageReady)
+      window.localStorage.setItem("my-assistant-settings", JSON.stringify(appSettings));
+  }, [appSettings, storageReady]);
+  useEffect(() => {
     if (!storageReady) return;
     const purgeExpiredCompleted = () => {
       setMemos((current) => {
-        const next = retainRecentCompleted(current);
+        const next = retainRecentCompleted(current, appSettings.autoDeleteCompletedMemos);
         return next;
       });
       setEvents((current) => {
@@ -4277,7 +4592,7 @@ export default function Home() {
     };
     const timer = window.setInterval(purgeExpiredCompleted, 60 * 60 * 1000);
     return () => window.clearInterval(timer);
-  }, [storageReady]);
+  }, [appSettings.autoDeleteCompletedMemos, storageReady]);
   useEffect(() => {
     if (process.env.NODE_ENV === "production" && "serviceWorker" in navigator)
       navigator.serviceWorker
@@ -4293,6 +4608,7 @@ export default function Home() {
   ) => {
     const title = voiceTitle(text);
     if (kind === "memo") {
+      const now = new Date().toISOString();
       setMemos((current) => [
         {
           id: Date.now(),
@@ -4301,13 +4617,15 @@ export default function Home() {
           category: "개인",
           pinned: false,
           deleted: false,
-          createdAt: "방금 전",
+          createdAt: now,
+          updatedAt: now,
         },
         ...current,
       ]);
       navigateTab("memo");
     }
     if (kind === "work") {
+      const now = new Date().toISOString();
       setWorkItems((current) => [
         {
           id: Date.now(),
@@ -4315,7 +4633,8 @@ export default function Home() {
           details: text,
           project: "음성 입력",
           completed: false,
-          createdAt: "방금 전",
+          createdAt: now,
+          updatedAt: now,
         },
         ...current,
       ]);
@@ -4343,8 +4662,7 @@ export default function Home() {
     voiceOpenRef.current = false;
     setVoiceOpen(false);
   };
-  const exportData = async () => {
-    const backup: BackupPayload = {
+  const createBackupPayload = (): BackupPayload => ({
       app: "personal-assistant-app",
       version: 1,
       exportedAt: new Date().toISOString(),
@@ -4352,10 +4670,20 @@ export default function Home() {
       workItems,
       events,
       weatherLocation,
+      savedWeatherLocations,
       chargers,
       restaurants,
-    };
+      appSettings,
+  });
+  const exportData = async () => {
+    const backup = createBackupPayload();
     const fileName = `나의비서-백업-${localDateKey()}.json`;
+    setAppSettings((current) => ({
+      ...current,
+      lastBackupAttemptAt: new Date().toISOString(),
+      lastBackupFileName: fileName,
+      lastBackupOutcome: undefined,
+    }));
     const file = new File(
       [JSON.stringify(backup, null, 2)],
       fileName,
@@ -4367,9 +4695,13 @@ export default function Home() {
           files: [file],
           title: "나의 비서 전체 데이터 백업",
         });
+        setAppSettings((current) => ({ ...current, lastBackupOutcome: "shared" }));
         return;
       } catch (error) {
-        if (error instanceof DOMException && error.name === "AbortError") return;
+        if (error instanceof DOMException && error.name === "AbortError") {
+          setAppSettings((current) => ({ ...current, lastBackupOutcome: "cancelled" }));
+          return;
+        }
       }
     }
     const url = URL.createObjectURL(file);
@@ -4377,6 +4709,7 @@ export default function Home() {
     link.href = url;
     link.download = fileName;
     link.click();
+    setAppSettings((current) => ({ ...current, lastBackupOutcome: "downloaded" }));
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
     window.alert(`백업 파일을 휴대폰의 다운로드 폴더에 저장했어요.\n파일명: ${fileName}`);
   };
@@ -4398,22 +4731,117 @@ export default function Home() {
         !Array.isArray(backup.events)
       )
         throw new Error("invalid backup");
-      if (
-        !window.confirm(
-          "현재 메모·업무·일정·맛집을 백업 파일 내용으로 바꿀까요? 먼저 현재 데이터를 백업해 두는 것을 권장합니다.",
-        )
-      )
+      const counts = [
+        `일반 메모 ${backup.memos.length}개`,
+        `업무·생활 메모 ${backup.workItems.length}개`,
+        `일정·기념일 ${backup.events.length}개`,
+        `맛집 ${backup.restaurants?.length ?? 0}곳`,
+        `날씨 위치 ${backup.savedWeatherLocations?.length ?? (backup.weatherLocation ? 1 : 0)}곳`,
+      ].join(" · ");
+      const selectedMode = window.prompt(
+        `${file.name}\n${counts}\n\n복원 방식을 입력하세요.\n- 합치기: 기존 자료를 유지하고 중복을 제외\n- 교체: 현재 자료를 파일 내용으로 교체\n\n'합치기' 또는 '교체'`,
+        "합치기",
+      );
+      if (selectedMode === null) return;
+      const mode = selectedMode.trim();
+      if (mode !== "합치기" && mode !== "교체") {
+        window.alert("복원 방식은 '합치기' 또는 '교체'로 입력해 주세요.");
         return;
-      setMemos(retainRecentCompleted(backup.memos));
-      setWorkItems(backup.workItems);
-      setEvents(retainCompletedEvents(backup.events.map(normalizeCalendarEvent)));
-      if (backup.weatherLocation) setWeatherLocation(backup.weatherLocation);
-      if (backup.chargers) setChargers(backup.chargers);
-      if (backup.restaurants)
-        setRestaurants((backup.restaurants as LegacyRestaurant[]).map(normalizeRestaurant));
-      window.alert("백업 파일에서 데이터를 복원했습니다.");
+      }
+
+      window.localStorage.setItem(
+        "my-assistant-pre-restore-backup",
+        JSON.stringify(createBackupPayload()),
+      );
+      setHasRestoreSafetyCopy(true);
+
+      const mergeRecords = <T extends { id: number }>(
+        current: T[],
+        incoming: T[],
+        signature: (item: T) => string,
+      ) => {
+        const seen = new Set(current.map(signature));
+        const usedIds = new Set(current.map((item) => item.id));
+        let nextId = Date.now();
+        const additions = incoming.flatMap((item) => {
+          const key = signature(item);
+          if (seen.has(key)) return [];
+          seen.add(key);
+          while (usedIds.has(nextId)) nextId += 1;
+          const safeItem = usedIds.has(item.id) ? { ...item, id: nextId++ } : item;
+          usedIds.add(safeItem.id);
+          return [safeItem];
+        });
+        return [...current, ...additions];
+      };
+      const restoredMemos = retainRecentCompleted(
+        backup.memos,
+        backup.appSettings?.autoDeleteCompletedMemos ?? appSettings.autoDeleteCompletedMemos,
+      );
+      const restoredEvents = retainCompletedEvents(backup.events.map(normalizeCalendarEvent));
+      const restoredRestaurants = (backup.restaurants ?? []).map(normalizeRestaurant);
+      if (mode === "교체") {
+        setMemos(restoredMemos);
+        setWorkItems(backup.workItems);
+        setEvents(restoredEvents);
+        if (backup.weatherLocation) setWeatherLocation(backup.weatherLocation);
+        if (backup.savedWeatherLocations) setSavedWeatherLocations(backup.savedWeatherLocations);
+        if (backup.chargers) setChargers(backup.chargers);
+        setRestaurants(restoredRestaurants);
+        if (backup.appSettings)
+          setAppSettings((current) => ({ ...current, ...backup.appSettings }));
+      } else {
+        setMemos((current) => mergeRecords(current, restoredMemos, (item) =>
+          JSON.stringify([item.title, item.content, item.category, item.completed, item.deleted]),
+        ));
+        setWorkItems((current) => mergeRecords(current, backup.workItems, (item) =>
+          JSON.stringify([item.title, item.details, item.project, item.completed, item.archived]),
+        ));
+        setEvents((current) => mergeRecords(current, restoredEvents, (item) =>
+          JSON.stringify([item.title, item.date, item.time, item.content, item.repeatYearly, item.deleted]),
+        ));
+        setRestaurants((current) => mergeRecords(current, restoredRestaurants, (item) =>
+          JSON.stringify([item.name, item.address]),
+        ));
+        if (backup.savedWeatherLocations)
+          setSavedWeatherLocations((current) => {
+            const keys = new Set(current.map((item) => `${item.name}|${item.latitude}|${item.longitude}`));
+            return [...current, ...backup.savedWeatherLocations!.filter((item) => {
+              const key = `${item.name}|${item.latitude}|${item.longitude}`;
+              if (keys.has(key)) return false;
+              keys.add(key);
+              return true;
+            })];
+          });
+        if (backup.chargers)
+          setChargers((current) => mergeRecords(current, backup.chargers!, (item) =>
+            JSON.stringify([item.name, item.address]),
+          ));
+      }
+      window.alert(`백업 파일을 기존 자료에 ${mode === "교체" ? "교체" : "합쳐"} 복원했습니다.`);
     } catch {
       window.alert("이 앱에서 만든 올바른 백업 파일이 아닙니다.");
+    }
+  };
+  const restoreSafetyCopy = () => {
+    try {
+      const raw = window.localStorage.getItem("my-assistant-pre-restore-backup");
+      if (!raw) throw new Error("missing safety copy");
+      const backup = JSON.parse(raw) as BackupPayload;
+      if (!window.confirm("직전 복원 전의 데이터로 되돌릴까요?")) return;
+      setMemos(backup.memos);
+      setWorkItems(backup.workItems);
+      setEvents(backup.events.map(normalizeCalendarEvent));
+      if (backup.weatherLocation) setWeatherLocation(backup.weatherLocation);
+      if (backup.savedWeatherLocations) setSavedWeatherLocations(backup.savedWeatherLocations);
+      if (backup.chargers) setChargers(backup.chargers);
+      if (backup.restaurants) setRestaurants(backup.restaurants.map(normalizeRestaurant));
+      if (backup.appSettings) setAppSettings(backup.appSettings);
+      window.localStorage.removeItem("my-assistant-pre-restore-backup");
+      setHasRestoreSafetyCopy(false);
+      window.alert("직전 복원 전의 데이터로 되돌렸습니다.");
+    } catch {
+      window.alert("되돌릴 복구용 사본을 읽지 못했어요.");
     }
   };
   const importRestaurantData = async (file: File) => {
@@ -4571,6 +4999,10 @@ export default function Home() {
         setMemos={setMemos}
         events={events}
         setEvents={setEvents}
+        appSettings={appSettings}
+        setAppSettings={setAppSettings}
+        hasRestoreSafetyCopy={hasRestoreSafetyCopy}
+        restoreSafetyCopy={restoreSafetyCopy}
       />
     ),
     weather: (
