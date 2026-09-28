@@ -1080,20 +1080,78 @@ function HomeCalendar({
   const [visibleMonth, setVisibleMonth] = useState(
     () => new Date(new Date().getFullYear(), new Date().getMonth(), 1),
   );
+  const monthSwipeStart = useRef<{
+    x: number;
+    y: number;
+    pointerId: number;
+  } | null>(null);
+  const lastMonthSwipeAt = useRef(0);
   const year = visibleMonth.getFullYear();
   const month = visibleMonth.getMonth();
   const firstDay = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const today = localDateKey();
   const changeMonth = (amount: number) =>
-    setVisibleMonth(new Date(year, month + amount, 1));
+    setVisibleMonth(
+      (current) =>
+        new Date(current.getFullYear(), current.getMonth() + amount, 1),
+    );
+  const startMonthSwipe = (event: React.PointerEvent<HTMLElement>) => {
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    monthSwipeStart.current = {
+      x: event.clientX,
+      y: event.clientY,
+      pointerId: event.pointerId,
+    };
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+  };
+  const finishMonthSwipe = (event: React.PointerEvent<HTMLElement>) => {
+    const start = monthSwipeStart.current;
+    monthSwipeStart.current = null;
+    if (!start || start.pointerId !== event.pointerId) return;
+    const horizontalDistance = event.clientX - start.x;
+    const verticalDistance = event.clientY - start.y;
+    if (
+      Math.abs(horizontalDistance) < 48 ||
+      Math.abs(horizontalDistance) <= Math.abs(verticalDistance) * 1.2
+    )
+      return;
+    event.preventDefault();
+    lastMonthSwipeAt.current = Date.now();
+    changeMonth(horizontalDistance < 0 ? 1 : -1);
+  };
+  const cancelMonthSwipe = () => {
+    monthSwipeStart.current = null;
+  };
+  const calendarClickWasSwipe = () =>
+    Date.now() - lastMonthSwipeAt.current < 350;
 
   return (
-    <section className="home-calendar" aria-label="월간 캘린더">
+    <section
+      className="home-calendar swipe-month-card"
+      onPointerDown={startMonthSwipe}
+      onPointerUp={finishMonthSwipe}
+      onPointerCancel={cancelMonthSwipe}
+      aria-label="월간 캘린더, 좌우로 밀어 이전 달이나 다음 달로 이동"
+    >
       <header>
-        <button onClick={() => changeMonth(-1)} aria-label="이전 달">‹</button>
+        <button
+          onClick={() => {
+            if (!calendarClickWasSwipe()) changeMonth(-1);
+          }}
+          aria-label="이전 달"
+        >
+          ‹
+        </button>
         <strong>{year}년 {month + 1}월</strong>
-        <button onClick={() => changeMonth(1)} aria-label="다음 달">›</button>
+        <button
+          onClick={() => {
+            if (!calendarClickWasSwipe()) changeMonth(1);
+          }}
+          aria-label="다음 달"
+        >
+          ›
+        </button>
       </header>
       <div className="home-calendar-weekdays">
         {["일", "월", "화", "수", "목", "금", "토"].map((day) => <span key={day}>{day}</span>)}
@@ -1110,7 +1168,9 @@ function HomeCalendar({
           return (
             <button
               className={`${dateKey === today ? "today" : ""} ${hasEvent ? "has-event" : ""} ${holiday || isSunday(dateKey) ? "holiday" : ""} ${holiday ? "public-holiday" : ""}`}
-              onClick={openCalendar}
+              onClick={() => {
+                if (!calendarClickWasSwipe()) openCalendar();
+              }}
               key={dateKey}
               title={holiday || undefined}
               aria-label={`${month + 1}월 ${day}일${holiday ? `, ${holiday}` : ""}${hasEvent ? ", 일정 있음" : ""}`}
@@ -1120,7 +1180,14 @@ function HomeCalendar({
           );
         })}
       </div>
-      <button className="home-calendar-manage" onClick={openCalendar}>＋ 일정 추가·관리</button>
+      <button
+        className="home-calendar-manage"
+        onClick={() => {
+          if (!calendarClickWasSwipe()) openCalendar();
+        }}
+      >
+        ＋ 일정 추가·관리
+      </button>
     </section>
   );
 }
