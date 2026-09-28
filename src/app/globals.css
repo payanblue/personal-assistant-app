@@ -499,6 +499,10 @@ h1 {
   border-radius: 20px;
   background: white;
 }
+.swipe-month-card {
+  touch-action: pan-y;
+  overscroll-behavior-x: contain;
+}
 .month-title {
   display: flex;
   align-items: center;

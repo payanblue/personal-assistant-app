@@ -2217,6 +2217,12 @@ function CalendarView({
   const [googleToken, setGoogleToken] = useState("");
   const [googleStatus, setGoogleStatus] = useState("");
   const [syncingId, setSyncingId] = useState<number | null>(null);
+  const monthSwipeStart = useRef<{
+    x: number;
+    y: number;
+    pointerId: number;
+  } | null>(null);
+  const lastMonthSwipeAt = useRef(0);
   const googleClientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
   const year = visibleMonth.getFullYear();
   const month = visibleMonth.getMonth();
@@ -2450,6 +2456,35 @@ function CalendarView({
       (current) =>
         new Date(current.getFullYear(), current.getMonth() + amount, 1),
     );
+  const startMonthSwipe = (event: React.PointerEvent<HTMLElement>) => {
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    monthSwipeStart.current = {
+      x: event.clientX,
+      y: event.clientY,
+      pointerId: event.pointerId,
+    };
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+  };
+  const finishMonthSwipe = (event: React.PointerEvent<HTMLElement>) => {
+    const start = monthSwipeStart.current;
+    monthSwipeStart.current = null;
+    if (!start || start.pointerId !== event.pointerId) return;
+    const horizontalDistance = event.clientX - start.x;
+    const verticalDistance = event.clientY - start.y;
+    if (
+      Math.abs(horizontalDistance) < 48 ||
+      Math.abs(horizontalDistance) <= Math.abs(verticalDistance) * 1.2
+    )
+      return;
+    event.preventDefault();
+    lastMonthSwipeAt.current = Date.now();
+    changeMonth(horizontalDistance < 0 ? 1 : -1);
+  };
+  const cancelMonthSwipe = () => {
+    monthSwipeStart.current = null;
+  };
+  const calendarClickWasSwipe = () =>
+    Date.now() - lastMonthSwipeAt.current < 350;
 
   return (
     <>
@@ -2500,13 +2535,31 @@ function CalendarView({
         </section>
       )}
       {!trash && (
-        <section className="month-card">
+        <section
+          className="month-card swipe-month-card"
+          onPointerDown={startMonthSwipe}
+          onPointerUp={finishMonthSwipe}
+          onPointerCancel={cancelMonthSwipe}
+          aria-label="월간 달력, 좌우로 밀어 이전 달이나 다음 달로 이동"
+        >
           <div className="month-title">
-            <button onClick={() => changeMonth(-1)}>‹</button>
+            <button
+              onClick={() => {
+                if (!calendarClickWasSwipe()) changeMonth(-1);
+              }}
+            >
+              ‹
+            </button>
             <strong>
               {year}년 {month + 1}월
             </strong>
-            <button onClick={() => changeMonth(1)}>›</button>
+            <button
+              onClick={() => {
+                if (!calendarClickWasSwipe()) changeMonth(1);
+              }}
+            >
+              ›
+            </button>
           </div>
           <div className="weekdays">
             {["일", "월", "화", "수", "목", "금", "토"].map((day) => (
@@ -2528,7 +2581,9 @@ function CalendarView({
               return (
                 <button
                   className={`${key === selectedDate ? "today" : ""} ${hasEvent ? "has-event" : ""} ${holiday || isSunday(key) ? "holiday" : ""} ${holiday ? "public-holiday" : ""}`}
-                  onClick={() => setSelectedDate(key)}
+                  onClick={() => {
+                    if (!calendarClickWasSwipe()) setSelectedDate(key);
+                  }}
                   key={key}
                   title={holiday || undefined}
                   aria-label={`${month + 1}월 ${day}일${holiday ? `, ${holiday}` : ""}${hasEvent ? ", 일정 있음" : ""}`}
