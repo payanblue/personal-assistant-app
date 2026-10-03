@@ -3021,3 +3021,28 @@ h1 {
   .restaurant-map { height: 320px; }
   .home-calendar-days > button, .home-calendar-days > span { height: 33px; }
 }
+
+/* Vector restaurant map: touch space, readable cards, linked nearby list. */
+.restaurant-map { height: clamp(360px, 55dvh, 560px); }
+.restaurant-map .maplibregl-ctrl-attrib { font-size: 9px; }
+.restaurant-map .maplibregl-ctrl-top-left { top: 56px; }
+.restaurant-map .maplibregl-ctrl-group button { width: 40px; height: 40px; }
+.vector-map-status { position: absolute; inset: 65px 16px auto; padding: 14px; border-radius: 12px; background: #fff; color: #304d40; text-align: center; z-index: 3; }
+.vector-map-status button { padding: 10px 18px; border-radius: 10px; background: #237d68; color: #fff; }
+.restaurant-location-status { margin: -4px 22px 16px; color: #52685c; font-size: 12px; line-height: 1.6; }
+.restaurant-list-scope { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 14px; }
+.restaurant-list-scope button { padding: 10px 14px; border: 1px solid #cbd8d1; border-radius: 18px; background: #fff; font-size: 12px; color: #52685c; }
+.restaurant-list-scope button.active { background: #237d68; border-color: #237d68; color: #fff; }
+.restaurant-list-scope small { flex-basis: 100%; font-size: 11px; color: #64756c; }
+.restaurant-selected-card { position: relative; padding-right: 36px; }
+.restaurant-card-close { position: absolute; right: 5px; top: 4px; width: 36px; height: 36px; font-size: 24px; color: #52685c; background: transparent; }
+.restaurant-distance { color: #237d68; font-weight: 800; }
+.restaurant-map-card { scroll-margin-top: 12px; }
+@media (max-width: 380px) { .restaurant-map { height: 360px; } }
+
+.restaurant-map-preview { position: absolute; bottom: 34px; left: 12px; right: 12px; display: flex; background: #fff; border-radius: 14px; box-shadow: 0 3px 16px #0003; z-index: 2; }
+.restaurant-map-preview button:first-child { flex: 1; min-width: 0; text-align: left; padding: 12px 14px; background: transparent; }
+.restaurant-map-preview strong, .restaurant-map-preview small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.restaurant-map-preview strong { font-size: 14px; color: #183e30; }
+.restaurant-map-preview small { margin-top: 4px; font-size: 11px; color: #52685c; }
+.restaurant-map-preview button:last-child { width: 44px; background: transparent; font-size: 24px; color: #52685c; }

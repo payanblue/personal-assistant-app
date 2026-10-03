@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import KoreanLunarCalendar from "korean-lunar-calendar";
+import RestaurantVectorMap, { distanceKm, validMapPoint, type MapBounds, type RestaurantMapController } from "../components/restaurant-vector-map";
 
 type Tab = "home" | "memo" | "work" | "calendar" | "restaurants" | "more" | "weather" | "charge";
 type VoiceKind = "memo" | "work" | "calendar";
@@ -32,27 +33,6 @@ type GoogleTokenClient = {
   requestAccessToken: (options?: { prompt?: string }) => void;
 };
 
-type LeafletMap = {
-  setView: (center: [number, number], zoom: number) => LeafletMap;
-  getBounds: () => { getWest: () => number; getSouth: () => number; getEast: () => number; getNorth: () => number };
-  on: (event: string, handler: (event: { latlng: { lat: number; lng: number } }) => void) => LeafletMap;
-  off: (event: string, handler: (event: { latlng: { lat: number; lng: number } }) => void) => LeafletMap;
-  invalidateSize: () => LeafletMap;
-  remove: () => void;
-};
-type LeafletLayer = { clearLayers: () => void; addTo: (map: LeafletMap) => LeafletLayer };
-type LeafletMarker = {
-  addTo: (layer: LeafletLayer) => LeafletMarker;
-  on: (event: string, handler: () => void) => LeafletMarker;
-};
-type LeafletApi = {
-  map: (element: HTMLElement, options?: Record<string, unknown>) => LeafletMap;
-  tileLayer: (url: string, options?: Record<string, unknown>) => { addTo: (map: LeafletMap) => void };
-  layerGroup: () => LeafletLayer;
-  marker: (position: [number, number], options?: Record<string, unknown>) => LeafletMarker;
-  circleMarker: (position: [number, number], options?: Record<string, unknown>) => LeafletMarker;
-  divIcon: (options: Record<string, unknown>) => unknown;
-};
 type TesseractApi = {
   recognize: (
     image: File,
@@ -73,7 +53,6 @@ declare global {
   interface Window {
     SpeechRecognition?: SpeechRecognitionConstructor;
     webkitSpeechRecognition?: SpeechRecognitionConstructor;
-    L?: LeafletApi;
     Tesseract?: TesseractApi;
     google?: {
       accounts: {
@@ -367,12 +346,6 @@ function normalizeRestaurant(restaurant: LegacyRestaurant): Restaurant {
   const searchableText = `${restaurant.name} ${(restaurant.tags ?? []).join(" ")} ${restaurant.memo ?? ""}`;
   const isNoodle = /(면|국수|냉면|짬뽕|짜장|우동|라멘|라면|쌀국수|소바|메밀)/.test(searchableText);
   return { ...restaurant, category: isNoodle ? "면" : "국밥" };
-}
-
-function escapeHtml(value: string) {
-  return value.replace(/[&<>"']/g, (character) => ({
-    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;",
-  })[character] ?? character);
 }
 
 type SharedRestaurantImage = {
@@ -3382,28 +3355,6 @@ function ChargerView({
   );
 }
 
-let leafletPromise: Promise<void> | null = null;
-function loadLeaflet() {
-  if (window.L) return Promise.resolve();
-  if (leafletPromise) return leafletPromise;
-  leafletPromise = new Promise((resolve, reject) => {
-    if (!document.querySelector('link[data-leaflet="true"]')) {
-      const link = document.createElement("link");
-      link.rel = "stylesheet";
-      link.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
-      link.dataset.leaflet = "true";
-      document.head.appendChild(link);
-    }
-    const script = document.createElement("script");
-    script.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
-    script.async = true;
-    script.onload = () => resolve();
-    script.onerror = () => reject(new Error("map load failed"));
-    document.head.appendChild(script);
-  });
-  return leafletPromise;
-}
-
 let tesseractPromise: Promise<void> | null = null;
 function loadTesseract() {
   if (window.Tesseract) return Promise.resolve();
@@ -3528,14 +3479,17 @@ function RestaurantMapView({
   clearSharedPlace: () => void;
 }) {
   const mapElement = useRef<HTMLDivElement | null>(null);
-  const mapRef = useRef<LeafletMap | null>(null);
-  const markerLayerRef = useRef<LeafletLayer | null>(null);
+  const selectedCard = useRef<HTMLElement | null>(null);
+  const mapRef = useRef<RestaurantMapController | null>(null);
   const fileInput = useRef<HTMLInputElement | null>(null);
   const handledSharedFiles = useRef<File[] | null>(null);
   const mapPickHandlerRef = useRef<((event: { latlng: { lat: number; lng: number } }) => void) | null>(null);
   const restaurantOverlayHistoryRef = useRef(false);
   const [filter, setFilter] = useState<RestaurantCategory>("전체");
-  const [mapReady, setMapReady] = useState(false);
+  const [mapBounds, setMapBounds] = useState<MapBounds | null>(null);
+  const [listScope, setListScope] = useState<"area" | "all">("area");
+  const [locationMessage, setLocationMessage] = useState("위치 권한을 허용하면 내 주변으로 이동해요.");
+  const locating = useRef(false);
   const [currentPosition, setCurrentPosition] = useState<[number, number] | null>(null);
   const [selected, setSelected] = useState<Restaurant | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
@@ -3562,78 +3516,56 @@ function RestaurantMapView({
   const [mapUrl, setMapUrl] = useState("");
   const [rating, setRating] = useState(0);
   const [visited, setVisited] = useState(false);
-  const visibleRestaurants = filter === "전체"
+  const filteredRestaurants = useMemo(() => (filter === "전체"
     ? restaurants
-    : restaurants.filter((restaurant) => restaurant.category === filter || restaurant.tags.includes(filter));
-
-  useEffect(() => {
-    let cancelled = false;
-    loadLeaflet()
-      .then(() => {
-        if (cancelled || !mapElement.current || !window.L || mapRef.current) return;
-        const map = window.L.map(mapElement.current, { zoomControl: true }).setView([35.576, 129.326], 13);
-        window.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-          attribution: "© OpenStreetMap",
-          maxZoom: 19,
-        }).addTo(map);
-        const layer = window.L.layerGroup().addTo(map);
-        mapRef.current = map;
-        markerLayerRef.current = layer;
-        setMapReady(true);
-        navigator.geolocation?.getCurrentPosition(
-          ({ coords }) => {
-            map.setView([coords.latitude, coords.longitude], 14);
-            setCurrentPosition([coords.latitude, coords.longitude]);
-          },
-          () => undefined,
-          { enableHighAccuracy: true, timeout: 8000 },
-        );
-      })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-      mapRef.current?.remove();
-      mapRef.current = null;
-      markerLayerRef.current = null;
-    };
-  }, []);
-
-  useEffect(() => {
-    const leaflet = window.L;
-    const layer = markerLayerRef.current;
-    if (!leaflet || !layer) return;
-    layer.clearLayers();
-    if (currentPosition)
-      leaflet.circleMarker(currentPosition, {
-        radius: 7, color: "#ffffff", fillColor: "#237d68", fillOpacity: 1, weight: 3,
-      }).addTo(layer);
-    const markerRestaurants = filter === "전체"
-      ? restaurants
-      : restaurants.filter((restaurant) => restaurant.category === filter || restaurant.tags.includes(filter));
-    markerRestaurants.forEach((restaurant) => {
-      const icon = leaflet.divIcon({
-        className: "restaurant-pin-wrap",
-        html: `<span class="restaurant-pin">${categoryIcon(restaurant.category)}</span><b>${escapeHtml(restaurant.name)}</b>`,
-        iconSize: [108, 46],
-        iconAnchor: [24, 42],
-      });
-      leaflet.marker([restaurant.latitude, restaurant.longitude], { icon })
-        .addTo(layer)
-        .on("click", () => setSelected(restaurant));
-    });
-  }, [mapReady, restaurants, filter, currentPosition]);
-
-  const locateMe = () => {
-    if (!navigator.geolocation) return;
+    : restaurants.filter((restaurant) => restaurant.category === filter || restaurant.tags.includes(filter)))
+    .filter(validMapPoint), [restaurants, filter]);
+  const visibleRestaurants = filteredRestaurants
+    .filter((item) => listScope === "all" || !mapBounds || (
+      item.latitude >= mapBounds.getSouth() && item.latitude <= mapBounds.getNorth() &&
+      item.longitude >= mapBounds.getWest() && item.longitude <= mapBounds.getEast()
+    ))
+    .sort((a, b) => currentPosition
+      ? distanceKm(currentPosition, [a.latitude, a.longitude]) - distanceKm(currentPosition, [b.latitude, b.longitude])
+      : 0);
+  const formatDistance = (restaurant: Restaurant) => {
+    if (!currentPosition) return "";
+    const km = distanceKm(currentPosition, [restaurant.latitude, restaurant.longitude]);
+    return km < 1 ? `${Math.round(km * 1000)}m` : `${km.toFixed(1)}km`;
+  };
+  const locateMe = useCallback(() => {
+    if (locating.current) return;
+    if (!navigator.geolocation) {
+      setLocationMessage("현재 위치를 지원하지 않아요. 지도를 움직여 주변 맛집을 확인하세요.");
+      return;
+    }
+    locating.current = true;
+    setLocationMessage("현재 위치를 확인하고 있어요…");
     navigator.geolocation.getCurrentPosition(
       ({ coords }) => {
+        locating.current = false;
         const position: [number, number] = [coords.latitude, coords.longitude];
         setCurrentPosition(position);
-        mapRef.current?.setView(position, 15);
+        setListScope("area");
+        mapRef.current?.setView(position, 14);
+        setLocationMessage(`파란 점이 내 위치예요 · 위치 오차 약 ${Math.round(coords.accuracy)}m`);
       },
-      () => window.alert("위치 권한을 허용하면 현재 위치로 이동할 수 있어요."),
-      { enableHighAccuracy: true, timeout: 8000 },
+      (error) => {
+        locating.current = false;
+        setLocationMessage(error.code === 1
+          ? "위치 권한이 꺼져 있어요. 지도를 움직여 맛집을 찾거나 브라우저 설정에서 허용해 주세요."
+          : "현재 위치를 확인하지 못했어요. 지도를 움직여 맛집을 확인할 수 있어요.");
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 },
     );
+  }, []);
+  const handleMapReady = useCallback((controller: RestaurantMapController | null) => {
+    mapRef.current = controller;
+    if (controller) locateMe();
+  }, [locateMe]);
+  const selectMapRestaurant = (id: number) => {
+    const item = restaurants.find((restaurant) => restaurant.id === id);
+    if (item) setSelected(item);
   };
   const searchPlace = async (value = query, fallbackAddress = "") => {
     if (!value.trim()) return;
@@ -3955,7 +3887,9 @@ function RestaurantMapView({
         </div>
       </section>
       <section className={`restaurant-map-card ${mapPicking ? "map-picking" : ""}`}>
-        <div className="restaurant-map" ref={mapElement} />
+        <div ref={mapElement}><RestaurantVectorMap restaurants={filteredRestaurants} position={currentPosition}
+          selectedId={selected?.id} picking={mapPicking} onSelect={selectMapRestaurant}
+          onBounds={setMapBounds} onReady={handleMapReady} /></div>
         {mapPicking ? (
           <section className="map-pick-panel">
             <header><strong>가게 위치 찾기</strong><button onClick={() => { detachMapPickHandler(); setMapPicking(false); setEditorOpen(true); }}>×</button></header>
@@ -3966,15 +3900,24 @@ function RestaurantMapView({
         ) : (
           <><button className="locate-me" onClick={locateMe}>◎ 내 위치</button><button className="restaurant-add-map" onClick={openNew}>＋ 맛집 등록</button></>
         )}
+        {selected && !mapPicking && <div className="restaurant-map-preview">
+          <button onClick={() => selectedCard.current?.scrollIntoView({ behavior: "smooth", block: "center" })}>
+            <strong>{selected.name}</strong><small>{currentPosition ? `${formatDistance(selected)} · ` : ""}상세 정보 보기 ›</small>
+          </button>
+          <button aria-label="선택 해제" onClick={() => setSelected(null)}>×</button>
+        </div>}
       </section>
+      <p className="restaurant-location-status" role="status">{locationMessage}</p>
       {selected && (
-        <section className="restaurant-selected-card">
+        <section className="restaurant-selected-card" ref={selectedCard} aria-label="선택한 맛집 정보">
+          <button className="restaurant-card-close" aria-label="맛집 정보 닫기" onClick={() => setSelected(null)}>×</button>
           <div className="restaurant-selected-icon">{categoryIcon(selected.category)}</div>
           <div className="restaurant-selected-details">
             <strong>{selected.name}</strong>
             <p className="restaurant-selected-rating">{selected.rating ? `★ ${selected.rating.toFixed(1)} / 5점` : "☆ 별점 없음"}</p>
             <p>{selected.category}{selected.tags.length ? ` · ${selected.tags.join(" · ")}` : ""}</p>
             <small>{selected.address}</small>
+            {currentPosition && <p className="restaurant-distance">내 위치에서 {formatDistance(selected)}</p>}
             {selected.memo && <p className="restaurant-selected-memo">📝 {selected.memo}</p>}
             <span className="restaurant-selected-visit">{selected.visited ? "✓ 이미 가본 곳" : "○ 가볼 곳"}</span>
           </div>
@@ -3985,16 +3928,21 @@ function RestaurantMapView({
         </section>
       )}
       <section className="restaurant-list section-block">
-        <div className="section-title"><h2>{filter === "전체" ? "저장한 맛집" : `${filter} 맛집`}</h2><span className="count">{visibleRestaurants.length}곳</span></div>
+        <div className="section-title"><h2>{listScope === "area" ? "이 지도 주변 맛집" : "저장한 맛집 전체"}</h2><span className="count">{visibleRestaurants.length}곳</span></div>
+        <div className="restaurant-list-scope" aria-label="맛집 목록 범위">
+          <button className={listScope === "area" ? "active" : ""} onClick={() => setListScope("area")}>지도 주변</button>
+          <button className={listScope === "all" ? "active" : ""} onClick={() => setListScope("all")}>전체 {filteredRestaurants.length}곳</button>
+          <small>{currentPosition ? "내 위치에서 가까운 순 · 직선거리" : "지도를 움직이면 목록도 바뀌어요"}</small>
+        </div>
         {visibleRestaurants.length ? visibleRestaurants.map((restaurant) => (
           <article key={restaurant.id}>
-            <button className="restaurant-list-main" onClick={() => { setSelected(restaurant); mapRef.current?.setView([restaurant.latitude, restaurant.longitude], 16); }}>
+            <button className="restaurant-list-main" onClick={() => { setSelected(restaurant); mapRef.current?.setView([restaurant.latitude, restaurant.longitude], 16); mapElement.current?.scrollIntoView({ behavior: "smooth", block: "start" }); }}>
               <span>{categoryIcon(restaurant.category)}</span>
-              <div><strong>{restaurant.name}</strong><small>{restaurant.rating ? `★ ${restaurant.rating} · ` : ""}{restaurant.visited ? "가본 곳" : "가볼 곳"} · {restaurant.category}</small></div><b>›</b>
+              <div><strong>{restaurant.name}</strong><small>{currentPosition ? `${formatDistance(restaurant)} · ` : ""}{restaurant.rating ? `★ ${restaurant.rating} · ` : ""}{restaurant.visited ? "가본 곳" : "가볼 곳"} · {restaurant.category}</small></div><b>›</b>
             </button>
             <button className="restaurant-naver" onClick={() => openRestaurantMap(restaurant)}>네이버지도</button>
           </article>
-        )) : <div className="empty-memos"><strong>이 종류로 저장한 맛집이 없어요</strong><p>상호명이나 지도 캡처로 추가해 보세요.</p></div>}
+        )) : <div className="empty-memos"><strong>{listScope === "area" ? "이 지도 범위에 저장한 맛집이 없어요" : "저장한 맛집이 없어요"}</strong><p>{listScope === "area" ? "지도를 축소하거나 이동해 보세요. 전체 목록에서도 찾을 수 있어요." : "맛집을 등록하면 지도와 목록에 표시돼요."}</p></div>}
       </section>
       {editorOpen && (
         <div className="restaurant-editor-overlay" role="dialog" aria-modal="true" aria-label="맛집 등록">
