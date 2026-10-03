@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { restaurantNameMatches, roadIdentity, type RestaurantCandidate } from "../lib/restaurant-identification";
 import KoreanLunarCalendar from "korean-lunar-calendar";
 import RestaurantVectorMap, { distanceKm, validMapPoint, type MapBounds, type RestaurantMapController } from "../components/restaurant-vector-map";
 
@@ -44,7 +45,8 @@ type TesseractApi = {
     engineMode?: number,
     options?: { logger?: (message: { status?: string; progress?: number }) => void },
   ) => Promise<{
-    recognize: (image: File) => Promise<{ data: { text: string } }>;
+    setParameters?: (parameters: Record<string, string>) => Promise<unknown>;
+    recognize: (image: File, options?: { rectangle: { left: number; top: number; width: number; height: number } }) => Promise<{ data: { text: string } }>;
     terminate: () => Promise<void>;
   }>;
 };
@@ -296,6 +298,8 @@ type Restaurant = {
   rating?: number;
   visited: boolean;
   createdAt: string;
+  sourceUrl?: string;
+  sourceAttribution?: string;
 };
 
 type RestaurantImportRecord = {
@@ -3377,20 +3381,25 @@ type RestaurantImportItem = {
   address?: string;
   status: "processing" | "ready" | "needs-review" | "confirmed";
   confirmed?: Omit<Restaurant, "id" | "createdAt">;
+  candidates?: RestaurantCandidate[];
+  message?: string;
+  lookupAddress?: string;
 };
 
 function likelyRestaurantAddress(text: string) {
   const matches = text
     .split(/\n+/)
     .flatMap((line) => {
-      const cleaned = line.replace(/[^0-9가-힣·\- ]/g, " ").replace(/\s+/g, " ").trim();
+      const cleaned = line.replace(/[^0-9가-힣·\- ]/g, " ").replace(/\s+/g, " ").replace(/([로길])\s+(?=\d+번길)/g, "$1").trim();
       return [...cleaned.matchAll(/([가-힣0-9·]+(?:로|길)\s*\d+(?:-\d+)?)/g)].map((match) => {
         const prefix = cleaned.slice(0, match.index).match(/(?:서울|부산|대구|인천|광주|대전|울산|세종|경기|강원|충북|충남|전북|전남|경북|경남|제주)[가-힣 ]*$/)?.[0] ?? "";
         return `${prefix}${match[1]}`.trim();
       });
     })
     .filter((value) => value.length >= 5);
-  return [...new Set(matches)].sort((a, b) => a.length - b.length)[0] ?? "";
+  const road = [...new Set(matches)].sort((a, b) => a.length - b.length)[0] ?? "";
+  const region = text.match(/(서울|부산|대구|인천|광주|대전|울산|세종|제주)(?:광역시|특별시)?\s*([가-힣]{1,6}(?:구|군))/)?.[0] ?? "";
+  return road && region && !road.includes(region.split(/\s/)[0]) ? `${region} ${road}` : road;
 }
 
 function likelyRestaurantLocationQuery(text: string) {
@@ -3512,6 +3521,7 @@ function RestaurantMapView({
   const [bulkItems, setBulkItems] = useState<RestaurantImportItem[]>([]);
   const readingScreenshots = useRef(false);
   const registeringBatch = useRef(false);
+  const [identifying, setIdentifying] = useState(false);
   const [activeBulkId, setActiveBulkId] = useState<number | null>(null);
   const [name, setName] = useState("");
   const [address, setAddress] = useState("");
@@ -3747,6 +3757,8 @@ function RestaurantMapView({
     const value = {
       name: name.trim(), address, latitude, longitude, category,
       tags: tags.split(/[,#]/).map((tag) => tag.trim()).filter(Boolean),
+      sourceUrl: editingId !== null ? restaurants.find((item) => item.id === editingId)?.sourceUrl : activeBulkId !== null ? bulkItems.find((item) => item.id === activeBulkId)?.confirmed?.sourceUrl : undefined,
+      sourceAttribution: editingId !== null ? restaurants.find((item) => item.id === editingId)?.sourceAttribution : activeBulkId !== null ? bulkItems.find((item) => item.id === activeBulkId)?.confirmed?.sourceAttribution : undefined,
       memo: memo.trim(), mapUrl: mapUrl || undefined, rating: rating || undefined, visited,
     };
     if (activeBulkId !== null) {
@@ -3777,7 +3789,12 @@ function RestaurantMapView({
     for (const item of confirmed) {
       const value = item.confirmed!;
       const key = `${normalized(value.name)}|${normalized(value.address)}`;
-      if (seen.has(key)) continue;
+      const samePlace = [...restaurants, ...additions].some((saved) =>
+        (value.sourceUrl && saved.sourceUrl === value.sourceUrl) ||
+        (restaurantNameMatches(saved.name, value.name) && Boolean(roadIdentity(value.address)) &&
+          roadIdentity(saved.address) === roadIdentity(value.address) &&
+          distanceKm([saved.latitude, saved.longitude], [value.latitude, value.longitude]) < .05));
+      if (seen.has(key) || samePlace) continue;
       seen.add(key);
       additions.push({ ...value, id: nextId++, createdAt: new Date().toISOString() });
     }
@@ -3787,9 +3804,55 @@ function RestaurantMapView({
     setOcrStatus(`${additions.length}곳 등록 · 중복 ${confirmed.length - additions.length}곳 제외. 확인 전인 캡처는 목록에 남겨 두었어요.`);
     window.setTimeout(() => { registeringBatch.current = false; }, 0);
   };
+  const inferPlaceCategory = (place: RestaurantCandidate): Exclude<RestaurantCategory, "전체"> =>
+    /국밥|해장국/.test(place.name) ? "국밥" : /김밥/.test(place.name) ? "치킨·분식" : /버거/.test(place.name) ? "양식" :
+    /중식|중국/.test(place.category) ? "중식" : /일식/.test(place.category) ? "일식" : /커피|카페/.test(place.category) ? "카페·디저트" : /분식/.test(place.category) ? "치킨·분식" : "기타";
+  const candidateValue = (place: RestaurantCandidate): Omit<Restaurant, "id" | "createdAt"> => ({
+    name: place.name, address: place.address, latitude: place.latitude, longitude: place.longitude,
+    category: inferPlaceCategory(place),
+    tags: [], memo: "", visited: false, sourceUrl: place.sourceUrl, sourceAttribution: place.sourceAttribution,
+  });
+  const identifyScreenshot = useCallback(async (item: RestaurantImportItem) => {
+    if (!item.name.trim()) return { ...item, status: "needs-review" as const, message: "상호명을 읽지 못했어요. 이름을 입력해 다시 확인하세요." };
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/api/restaurant-identify`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: item.name, address: item.lookupAddress ?? item.address ?? "" }),
+      });
+      if (!response.ok) throw new Error("provider unavailable");
+      const data = await response.json() as { verified: RestaurantCandidate | null; candidates: RestaurantCandidate[] };
+      if (data.verified) {
+        const place = data.verified;
+        return { ...item, name: place.name, address: place.address, status: "confirmed" as const,
+          confirmed: { name: place.name, address: place.address, latitude: place.latitude, longitude: place.longitude,
+            category: (/국밥|해장국/.test(place.name) ? "국밥" : /김밥/.test(place.name) ? "치킨·분식" : /버거/.test(place.name) ? "양식" : /중식|중국/.test(place.category) ? "중식" : /일식/.test(place.category) ? "일식" : /커피|카페/.test(place.category) ? "카페·디저트" : /분식/.test(place.category) ? "치킨·분식" : "기타") as Exclude<RestaurantCategory, "전체">,
+            tags: [], memo: "", visited: false, sourceUrl: place.sourceUrl, sourceAttribution: place.sourceAttribution },
+          candidates: [], message: "상호명·주소 대조 완료" };
+      }
+      return { ...item, status: "needs-review" as const, confirmed: undefined,
+        candidates: data.candidates.filter((place) => place.open).slice(0, 5), message: "일치하는 이름·주소를 확정하지 못했어요. 후보를 확인하세요." };
+    } catch {
+      return { ...item, status: "needs-review" as const, confirmed: undefined, message: "검색 서비스에 연결하지 못했어요. 다시 확인할 수 있어요." };
+    }
+  }, []);
+  const identifyPending = async () => {
+    if (identifying || readingScreenshots.current) return;
+    setIdentifying(true);
+    try {
+      const pending = bulkItems.filter((item) => item.status !== "confirmed");
+      for (let index = 0; index < pending.length; index++) {
+        setOcrStatus(`${index + 1}/${pending.length}곳 이름·주소 확인 중…`);
+        const result = await identifyScreenshot(pending[index]);
+        setBulkItems((current) => current.map((entry) => entry.id === result.id ? result : entry));
+        if (index < pending.length - 1) await new Promise((resolve) => window.setTimeout(resolve, 1100));
+      }
+      setOcrStatus("자동 확인이 끝났어요. 확인한 맛집을 한 번에 등록할 수 있어요.");
+    } finally { setIdentifying(false); }
+  };
   const readScreenshots = useCallback(async (files: File[]) => {
     if (!files.length || readingScreenshots.current) return;
     readingScreenshots.current = true;
+    setIdentifying(true);
     const startedAt = Date.now();
     const queued = files.map((file, index) => ({
       id: startedAt + index,
@@ -3803,32 +3866,62 @@ function RestaurantMapView({
       await loadTesseract();
       let processingIndex = 0;
       const worker = window.Tesseract?.createWorker
-        ? await window.Tesseract.createWorker("kor+eng", 1, {
+        ? await window.Tesseract.createWorker("kor", 1, {
             logger: (message) => {
               if (message.status === "recognizing text")
                 setOcrStatus(`${processingIndex + 1}/${files.length}장 인식 중 · ${Math.round((message.progress ?? 0) * 100)}%`);
             },
           })
         : null;
+      await worker?.setParameters?.({ tessedit_pageseg_mode: "6" });
       for (let index = 0; index < files.length; index += 1) {
         processingIndex = index;
         const file = files[index];
         const item = queued[index];
         try {
-          const result = worker
-            ? await worker.recognize(file)
-            : await window.Tesseract?.recognize(file, "kor+eng", {
-                logger: (message) => {
-                  if (message.status === "recognizing text")
-                    setOcrStatus(`${index + 1}/${files.length}장 인식 중 · ${Math.round((message.progress ?? 0) * 100)}%`);
-                },
-              });
-          const recognizedText = result?.data.text ?? "";
-          const candidate = likelyRestaurantName(recognizedText);
+          let recognizedText = "";
+          let titleText = "";
+          const image = worker ? await createImageBitmap(file) : null;
+          try {
+            if (worker && image && image.height > image.width * 1.6) {
+              const readRegion = async (left: number, top: number, width: number, height: number, mode: string) => {
+                const canvas = document.createElement("canvas");
+                canvas.width = Math.round(image.width * width * 3); canvas.height = Math.round(image.height * height * 3);
+                const context = canvas.getContext("2d");
+                if (!context) throw new Error("image unavailable");
+                context.drawImage(image, image.width * left, image.height * top, image.width * width, image.height * height, 0, 0, canvas.width, canvas.height);
+                const pixels = context.getImageData(0, 0, canvas.width, canvas.height);
+                for (let p = 0; p < pixels.data.length; p += 4) {
+                  const gray = pixels.data[p] * .299 + pixels.data[p + 1] * .587 + pixels.data[p + 2] * .114;
+                  const corrected = Math.min(255, Math.max(0, (gray - 220) * 1.5 + 220));
+                  pixels.data[p] = pixels.data[p + 1] = pixels.data[p + 2] = corrected;
+                }
+                context.putImageData(pixels, 0, 0);
+                const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob((value) => value ? resolve(value) : reject(new Error("image unavailable")), "image/png"));
+                await worker.setParameters?.({ tessedit_pageseg_mode: mode });
+                return (await worker.recognize(new File([blob], "ocr-region.png", { type: "image/png" }))).data.text;
+              };
+              titleText = await readRegion(.04, .526, .73, .048, "7");
+              const detailText = await readRegion(.02, .60, .96, .165, "11");
+              if (!likelyRestaurantName(titleText) || titleText.trim().length < 3)
+                titleText += `\n${await readRegion(.16, .059, .37, .041, "7")}`;
+              recognizedText = `${titleText}\n${detailText}`;
+              if (!likelyRestaurantName(titleText)) {
+                await worker.setParameters?.({ tessedit_pageseg_mode: "11" });
+                recognizedText += `\n${(await worker.recognize(file)).data.text}`;
+              }
+            } else {
+              recognizedText = (worker ? await worker.recognize(file) : await window.Tesseract?.recognize(file, "kor"))?.data.text ?? "";
+            }
+          } finally { image?.close(); }
+          const candidate = likelyRestaurantName(titleText) || likelyRestaurantName(recognizedText);
           const addressCandidate = likelyRestaurantAddress(recognizedText);
-          setBulkItems((current) => current.map((entry) => entry.id === item.id
-            ? { ...entry, name: candidate, address: addressCandidate, status: "needs-review" }
-            : entry));
+          const lot = recognizedText.match(/[가-힣]+(?:동|읍|면|리)\s*\d+(?:-\d+)?/)?.[0] ?? "";
+          const region = recognizedText.match(/(서울|부산|대구|인천|광주|대전|울산|세종|제주)(?:광역시|특별시)?\s*([가-힣]{1,6}(?:구|군))/)?.[0] ?? "";
+          setOcrStatus(`${index + 1}/${files.length}장 · 검색으로 상호명·주소 대조 중…`);
+          const identified = await identifyScreenshot({ ...item, name: candidate, address: addressCandidate || `${region} ${lot}`.trim(), lookupAddress: `${region} ${addressCandidate} ${lot}`.trim(), status: "needs-review" });
+          setBulkItems((current) => current.map((entry) => entry.id === item.id ? identified : entry));
+          if (index < files.length - 1) await new Promise((resolve) => window.setTimeout(resolve, 1100));
         } catch {
           setBulkItems((current) => current.map((entry) => entry.id === item.id
             ? { ...entry, status: "needs-review" }
@@ -3836,7 +3929,7 @@ function RestaurantMapView({
         }
       }
       await worker?.terminate();
-      setOcrStatus("인식이 끝났어요. 아직 등록 전이에요. 이름·주소와 장소를 확인하면 여러 곳을 한 번에 등록할 수 있어요.");
+      setOcrStatus("인식·검색 확인이 끝났어요. 확인된 맛집은 한 번에 등록하고, 확인 필요 항목만 살펴보세요.");
     } catch {
       setBulkItems((current) => current.map((entry) => queued.some((item) => item.id === entry.id)
         ? { ...entry, status: "needs-review" }
@@ -3844,8 +3937,9 @@ function RestaurantMapView({
       setOcrStatus("자동 인식을 불러오지 못했어요. 각 칸에 상호명을 직접 입력할 수 있어요.");
     } finally {
       readingScreenshots.current = false;
+      setIdentifying(false);
     }
-  }, []);
+  }, [identifyScreenshot]);
   const checkBulkItem = (item: RestaurantImportItem) => {
     if (!item.name.trim()) return;
     resetFields();
@@ -3960,6 +4054,7 @@ function RestaurantMapView({
             <p>{selected.category}{selected.tags.length ? ` · ${selected.tags.join(" · ")}` : ""}</p>
             <small>{selected.address}</small>
             {currentPosition && <p className="restaurant-distance">내 위치에서 {formatDistance(selected)}</p>}
+            {selected.sourceUrl && <a className="restaurant-source" href={selected.sourceUrl} target="_blank" rel="noopener noreferrer">{selected.sourceAttribution || "장소 정보 출처"}</a>}
             {selected.memo && <p className="restaurant-selected-memo">📝 {selected.memo}</p>}
             <span className="restaurant-selected-visit">{selected.visited ? "✓ 이미 가본 곳" : "○ 가볼 곳"}</span>
           </div>
@@ -3991,7 +4086,7 @@ function RestaurantMapView({
           <section className="restaurant-editor">
             <header><div><p className="eyebrow">내 맛집 지도</p><h2>{editingId === null ? "맛집 등록" : "맛집 수정"}</h2></div><button onClick={closeRestaurantOverlay}>×</button></header>
             <div className="restaurant-import-actions">
-              <button onClick={() => fileInput.current?.click()}>▣ 지도 캡처 여러 장 가져오기</button>
+              <button disabled={identifying} onClick={() => fileInput.current?.click()}>▣ 지도 캡처 여러 장 가져오기</button>
               <input ref={fileInput} type="file" accept="image/*" multiple hidden onChange={(event) => { const files = Array.from(event.target.files ?? []); if (files.length) void readScreenshots(files); event.target.value = ""; }} />
             </div>
             <p className="share-target-guide">
@@ -4010,21 +4105,28 @@ function RestaurantMapView({
                         value={item.name}
                         onChange={(event) => setBulkItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, name: event.target.value, status: "needs-review", confirmed: undefined } : entry))}
                         placeholder={item.status === "processing" ? "상호명 인식 중…" : "상호명을 직접 입력"}
-                        disabled={item.status === "processing" || activeBulkId === item.id}
+                        disabled={identifying || item.status === "processing" || activeBulkId === item.id}
                         aria-label={`${index + 1}번 캡처 상호명`}
                       />
-                      <input value={item.address ?? ""} placeholder="주소 인식 결과 · 틀리면 수정" aria-label={`${index + 1}번 캡처 주소`} disabled={item.status === "processing" || activeBulkId === item.id} onChange={(event) => setBulkItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, address: event.target.value, status: "needs-review", confirmed: undefined } : entry))} />
+                      <input value={item.address ?? ""} placeholder="주소 인식 결과 · 틀리면 수정" aria-label={`${index + 1}번 캡처 주소`} disabled={identifying || item.status === "processing" || activeBulkId === item.id} onChange={(event) => setBulkItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, address: event.target.value, lookupAddress: undefined, status: "needs-review", confirmed: undefined } : entry))} />
+                      {item.message && <small>{item.message}</small>}
+                      {!identifying && item.candidates?.map((place) => <button className="restaurant-candidate" key={place.sourceUrl} onClick={() => {
+                        if (!place.originalCoordinates) return;
+                        setBulkItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, name: place.name, address: place.address, confirmed: candidateValue(place), status: "confirmed", candidates: [], message: "선택한 장소 확인 완료" } : entry));
+                      }} disabled={!place.originalCoordinates || activeBulkId !== null}><strong>{place.name}</strong><small>{place.address}</small><small>{place.sourceAttribution}</small></button>)}
                       <small>{item.fileName}{item.address ? ` · ${item.address}` : ""}{item.status === "needs-review" ? " · 장소 확인 필요" : item.status === "confirmed" ? " · 확인 완료 (등록 전)" : ""}</small>
                     </div>
-                    <button onClick={() => checkBulkItem(item)} disabled={item.status === "processing" || !item.name.trim() || activeBulkId !== null}> {item.status === "confirmed" ? "다시 확인" : "장소 확인"}</button>
-                    <button className="queue-remove" aria-label="목록에서 제거" disabled={activeBulkId === item.id} onClick={() => setBulkItems((current) => current.filter((entry) => entry.id !== item.id))}>×</button>
+                    <button onClick={() => checkBulkItem(item)} disabled={identifying || item.status === "processing" || !item.name.trim() || activeBulkId !== null}> {item.status === "confirmed" ? "다시 확인" : "장소 확인"}</button>
+                    <button className="queue-remove" aria-label="목록에서 제거" disabled={identifying || activeBulkId === item.id} onClick={() => setBulkItems((current) => current.filter((entry) => entry.id !== item.id))}>×</button>
                   </article>
                 ))}
               </section>
             )}
             {bulkItems.length > 0 && activeBulkId === null && editingId === null && <div className="restaurant-batch-actions">
-              <p>상호명·주소는 자동 인식 후보예요. 장소를 확인한 항목만 등록합니다.</p>
-              <button onClick={registerConfirmedBatch} disabled={!bulkItems.some((item) => item.status === "confirmed") || bulkItems.some((item) => item.status === "processing")}>
+              <p>검색으로 상호명·주소를 대조한 항목만 등록해요. 사진은 휴대폰에서 읽고 검색에는 이름·주소만 전달합니다.</p>
+              <button onClick={() => void identifyPending()} disabled={identifying || bulkItems.every((item) => item.status === "confirmed")}>{identifying ? "인식·검색 확인 중…" : "확인 필요 항목 다시 검색"}</button>
+              <small>검색 자료: 클라리오 플레이스 · 지방행정 인허가 공공데이터</small>
+              <button onClick={registerConfirmedBatch} disabled={identifying || !bulkItems.some((item) => item.status === "confirmed") || bulkItems.some((item) => item.status === "processing")}>
                 확인한 맛집 모두 등록 ({bulkItems.filter((item) => item.status === "confirmed").length}곳)
               </button>
               <button className="cancel" onClick={closeRestaurantOverlay}>닫기</button>

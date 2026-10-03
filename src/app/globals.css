@@ -3057,6 +3057,21 @@ h1 {
 
 .restaurant-import-queue small { white-space: normal; overflow-wrap: anywhere; font-size: 10px; }
 .restaurant-import-queue input { font-size: 13px; }
+.restaurant-import-queue .restaurant-candidate {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  min-height: 48px;
+  padding: 10px;
+  border: 1px solid #b8d2c4;
+  border-radius: 10px;
+  background: #f4faf6;
+  color: #24583f;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.restaurant-import-queue .restaurant-candidate:disabled { opacity: .5; }
+.restaurant-source { display: block; margin-top: 8px; font-size: 11px; overflow-wrap: anywhere; }
 .restaurant-import-queue article > button { min-height: 42px; }
 .restaurant-batch-actions { display: grid; gap: 8px; margin-top: 12px; }
 .restaurant-batch-actions p { font-size: 12px; color: #53675d; }
