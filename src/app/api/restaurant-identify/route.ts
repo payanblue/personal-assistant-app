@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { verifiedRestaurant, regionMatches, roadIdentity, type RestaurantCandidate } from '../../../lib/restaurant-identification';
+import { verifiedRestaurant, regionMatches, roadIdentity, restaurantNameMatches, type RestaurantCandidate } from '../../../lib/restaurant-identification';
 
 const attribution = '클라리오 플레이스 · 지방행정 인허가 공공데이터';
 const food = new Set(['restaurant', 'chinese', 'meat', 'bunsik', 'western', 'japanese', 'fish', 'cafe', 'bakery', 'chicken', 'food', 'bar', 'bbq']);
@@ -21,13 +21,15 @@ export async function POST(request: Request) {
     if (!Array.isArray(payload.data?.items)) return NextResponse.json({ error: 'provider-format-changed' }, { status: 502 });
     const candidates: RestaurantCandidate[] = payload.data.items.filter((item) =>
       item.name && /^\/p\/\d+\//.test(item.path ?? '') && food.has(item.category_slug ?? '') && typeof item.lat === 'number' && typeof item.lng === 'number' &&
-      Number.isFinite(item.lat) && Number.isFinite(item.lng) && Math.abs(item.lat) <= 90 && Math.abs(item.lng) <= 180 && (item.road_address || item.lot_address),
+      Number.isFinite(item.lat) && Number.isFinite(item.lng) && Math.abs(item.lat) <= 90 && Math.abs(item.lng) <= 180 &&
+      (item.geo_confidence === 1 || item.geo_confidence === 2) && (item.road_address || item.lot_address),
     ).map((item) => ({
       name: item.name!, address: item.road_address || item.lot_address!, lotAddress: item.lot_address, latitude: item.lat!, longitude: item.lng!,
       category: item.source_category ?? '', sourceUrl: `https://place.clariosync.com/p/${item.path?.split('/')[2] ?? ''}/${encodeURIComponent(item.name!)}`,
       sourceAttribution: attribution, originalCoordinates: item.geo_confidence === 2, open: item.status === 'open',
     }));
-    candidates.sort((a, b) => Number(regionMatches(address, b.address)) - Number(regionMatches(address, a.address)) ||
+    candidates.sort((a, b) => Number(restaurantNameMatches(name, b.name)) - Number(restaurantNameMatches(name, a.name)) ||
+      Number(regionMatches(address, b.address)) - Number(regionMatches(address, a.address)) ||
       Number(Boolean(roadIdentity(address)) && roadIdentity(b.address) === roadIdentity(address)) - Number(Boolean(roadIdentity(address)) && roadIdentity(a.address) === roadIdentity(address)));
     return NextResponse.json({ verified: verifiedRestaurant(name, address, candidates), candidates, attribution });
   } catch {

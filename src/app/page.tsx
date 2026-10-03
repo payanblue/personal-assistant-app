@@ -3801,6 +3801,7 @@ function RestaurantMapView({
     setRestaurants((current) => [...additions, ...current]);
     const finished = new Set(confirmed.map((item) => item.id));
     setBulkItems((current) => current.filter((item) => !finished.has(item.id)));
+    if (activeBulkId !== null && finished.has(activeBulkId)) { setActiveBulkId(null); resetFields(); }
     setOcrStatus(`${additions.length}곳 등록 · 중복 ${confirmed.length - additions.length}곳 제외. 확인 전인 캡처는 목록에 남겨 두었어요.`);
     window.setTimeout(() => { registeringBatch.current = false; }, 0);
   };
@@ -3812,12 +3813,12 @@ function RestaurantMapView({
     category: inferPlaceCategory(place),
     tags: [], memo: "", visited: false, sourceUrl: place.sourceUrl, sourceAttribution: place.sourceAttribution,
   });
-  const identifyScreenshot = useCallback(async (item: RestaurantImportItem) => {
+  const identifyScreenshot = useCallback(async (item: RestaurantImportItem, nameOnly = false) => {
     if (!item.name.trim()) return { ...item, status: "needs-review" as const, message: "상호명을 읽지 못했어요. 이름을 입력해 다시 확인하세요." };
     try {
       const response = await fetch(`${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/api/restaurant-identify`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: item.name, address: item.lookupAddress ?? item.address ?? "" }),
+        body: JSON.stringify({ name: item.name.trim(), address: nameOnly ? "" : item.lookupAddress ?? item.address ?? "" }),
       });
       if (!response.ok) throw new Error("provider unavailable");
       const data = await response.json() as { verified: RestaurantCandidate | null; candidates: RestaurantCandidate[] };
@@ -3830,11 +3831,20 @@ function RestaurantMapView({
           candidates: [], message: "상호명·주소 대조 완료" };
       }
       return { ...item, status: "needs-review" as const, confirmed: undefined,
-        candidates: data.candidates.filter((place) => place.open).slice(0, 5), message: "일치하는 이름·주소를 확정하지 못했어요. 후보를 확인하세요." };
+        candidates: data.candidates.filter((place) => place.open).slice(0, 10), message: nameOnly ? "상호명으로 다시 검색했어요. 올바른 주소의 장소를 선택하세요." : "이름·주소가 일치하지 않아요. 상호명을 수정해 재검색하거나 후보를 선택하세요." };
     } catch {
-      return { ...item, status: "needs-review" as const, confirmed: undefined, message: "검색 서비스에 연결하지 못했어요. 다시 확인할 수 있어요." };
+      return { ...item, status: "needs-review" as const, confirmed: undefined, candidates: [], message: "검색 서비스에 연결하지 못했어요. 다시 확인할 수 있어요." };
     }
   }, []);
+  const retryScreenshot = async (item: RestaurantImportItem) => {
+    if (identifying || readingScreenshots.current || !item.name.trim()) return;
+    setIdentifying(true);
+    setBulkItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, candidates: [], message: "수정한 상호명으로 검색 중…" } : entry));
+    try {
+      const result = await identifyScreenshot(item, true);
+      setBulkItems((current) => current.map((entry) => entry.id === item.id ? result : entry));
+    } finally { setIdentifying(false); }
+  };
   const identifyPending = async () => {
     if (identifying || readingScreenshots.current) return;
     setIdentifying(true);
@@ -4103,27 +4113,28 @@ function RestaurantMapView({
                     <div>
                       <input
                         value={item.name}
-                        onChange={(event) => setBulkItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, name: event.target.value, status: "needs-review", confirmed: undefined } : entry))}
+                        onChange={(event) => setBulkItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, name: event.target.value, status: "needs-review", confirmed: undefined, candidates: [], message: "수정한 상호명으로 재검색하세요." } : entry))}
                         placeholder={item.status === "processing" ? "상호명 인식 중…" : "상호명을 직접 입력"}
                         disabled={identifying || item.status === "processing" || activeBulkId === item.id}
                         aria-label={`${index + 1}번 캡처 상호명`}
                       />
-                      <input value={item.address ?? ""} placeholder="주소 인식 결과 · 틀리면 수정" aria-label={`${index + 1}번 캡처 주소`} disabled={identifying || item.status === "processing" || activeBulkId === item.id} onChange={(event) => setBulkItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, address: event.target.value, lookupAddress: undefined, status: "needs-review", confirmed: undefined } : entry))} />
+                      <input value={item.address ?? ""} placeholder="주소 인식 결과 · 틀리면 수정" aria-label={`${index + 1}번 캡처 주소`} disabled={identifying || item.status === "processing" || activeBulkId === item.id} onChange={(event) => setBulkItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, address: event.target.value, lookupAddress: undefined, status: "needs-review", confirmed: undefined, candidates: [], message: "수정한 내용으로 다시 검색하세요." } : entry))} />
                       {item.message && <small>{item.message}</small>}
                       {!identifying && item.candidates?.map((place) => <button className="restaurant-candidate" key={place.sourceUrl} onClick={() => {
-                        if (!place.originalCoordinates) return;
-                        setBulkItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, name: place.name, address: place.address, confirmed: candidateValue(place), status: "confirmed", candidates: [], message: "선택한 장소 확인 완료" } : entry));
-                      }} disabled={!place.originalCoordinates || activeBulkId !== null}><strong>{place.name}</strong><small>{place.address}</small><small>{place.sourceAttribution}</small></button>)}
+                        setBulkItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, name: place.name, address: place.address, confirmed: candidateValue(place), status: "confirmed", candidates: [], message: place.originalCoordinates ? "선택한 장소 확인 완료" : "선택한 주소로 위치를 추정했어요. 등록 후 지도에서 확인하세요." } : entry));
+                      }} disabled={activeBulkId !== null}><strong>{place.name}</strong><small>{place.address}</small>{!place.originalCoordinates && <small>주소 기준 추정 위치 · 지도에서 확인 필요</small>}<small>{place.sourceAttribution}</small></button>)}
                       <small>{item.fileName}{item.address ? ` · ${item.address}` : ""}{item.status === "needs-review" ? " · 장소 확인 필요" : item.status === "confirmed" ? " · 확인 완료 (등록 전)" : ""}</small>
+                      <button className="restaurant-candidate" onClick={() => checkBulkItem(item)} disabled={identifying || item.status === "processing" || !item.name.trim() || activeBulkId !== null}>직접 위치 선택·상세 수정</button>
                     </div>
-                    <button onClick={() => checkBulkItem(item)} disabled={identifying || item.status === "processing" || !item.name.trim() || activeBulkId !== null}> {item.status === "confirmed" ? "다시 확인" : "장소 확인"}</button>
+                    <button onClick={() => void retryScreenshot(item)} disabled={identifying || item.status === "processing" || !item.name.trim() || activeBulkId !== null}>이 이름으로 재검색</button>
                     <button className="queue-remove" aria-label="목록에서 제거" disabled={identifying || activeBulkId === item.id} onClick={() => setBulkItems((current) => current.filter((entry) => entry.id !== item.id))}>×</button>
                   </article>
                 ))}
               </section>
             )}
-            {bulkItems.length > 0 && activeBulkId === null && editingId === null && <div className="restaurant-batch-actions">
-              <p>검색으로 상호명·주소를 대조한 항목만 등록해요. 사진은 휴대폰에서 읽고 검색에는 이름·주소만 전달합니다.</p>
+            {bulkItems.length > 0 && editingId === null && <div className="restaurant-batch-actions">
+              <p>확인된 항목만 먼저 등록할 수 있어요. 확인 필요 항목은 남겨 두며 다른 맛집의 등록을 막지 않아요.</p>
+              {activeBulkId !== null && <button className="cancel" onClick={() => { setActiveBulkId(null); resetFields(); }}>캡처 목록으로 돌아가기</button>}
               <button onClick={() => void identifyPending()} disabled={identifying || bulkItems.every((item) => item.status === "confirmed")}>{identifying ? "인식·검색 확인 중…" : "확인 필요 항목 다시 검색"}</button>
               <small>검색 자료: 클라리오 플레이스 · 지방행정 인허가 공공데이터</small>
               <button onClick={registerConfirmedBatch} disabled={identifying || !bulkItems.some((item) => item.status === "confirmed") || bulkItems.some((item) => item.status === "processing")}>
