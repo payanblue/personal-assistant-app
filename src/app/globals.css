@@ -3046,3 +3046,7 @@ h1 {
 .restaurant-map-preview strong { font-size: 14px; color: #183e30; }
 .restaurant-map-preview small { margin-top: 4px; font-size: 11px; color: #52685c; }
 .restaurant-map-preview button:last-child { width: 44px; background: transparent; font-size: 24px; color: #52685c; }
+
+.restaurant-selected-card .restaurant-card-close { padding: 0; background: transparent; color: #52685c; font-size: 24px; }
+.restaurant-selected-card p, .restaurant-selected-card small { font-size: 12px; line-height: 1.5; }
+.restaurant-selected-card strong { font-size: 16px; }

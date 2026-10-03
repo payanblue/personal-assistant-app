@@ -23,12 +23,14 @@ type GLMap = {
   addSource: (id: string, options: Record<string, unknown>) => void;
   getSource: (id: string) => { setData: (data: GeoData) => void; getClusterExpansionZoom: (id: number) => Promise<number> } | undefined;
   addLayer: (options: Record<string, unknown>) => void;
+  getStyle: () => { layers: { id: string; type: string; layout?: Record<string, unknown> }[] };
+  setLayoutProperty: (id: string, key: string, value: unknown) => void;
   queryRenderedFeatures: (point: unknown, options: { layers: string[] }) => MapEvent["features"];
   addControl: (control: unknown, position: string) => void;
   resize: () => void;
   remove: () => void;
 };
-type GLApi = { Map: new (options: Record<string, unknown>) => GLMap; NavigationControl: new (options: Record<string, unknown>) => unknown; supported: () => boolean };
+type GLApi = { Map: new (options: Record<string, unknown>) => GLMap; NavigationControl: new (options: Record<string, unknown>) => unknown };
 let libraryPromise: Promise<GLApi> | null = null;
 function loadMapLibrary(): Promise<GLApi> {
   const global = window as unknown as { maplibregl?: GLApi };
@@ -44,8 +46,9 @@ function loadMapLibrary(): Promise<GLApi> {
     }
     const script = document.createElement("script");
     script.src = "https://unpkg.com/maplibre-gl@5.6.2/dist/maplibre-gl.js";
-    script.onload = () => global.maplibregl ? resolve(global.maplibregl) : reject(new Error("library unavailable"));
-    script.onerror = () => { script.remove(); reject(new Error("library load failed")); };
+    const timeout = setTimeout(() => { script.remove(); reject(new Error("library load timed out")); }, 15000);
+    script.onload = () => { clearTimeout(timeout); global.maplibregl ? resolve(global.maplibregl) : reject(new Error("library unavailable")); };
+    script.onerror = () => { clearTimeout(timeout); script.remove(); reject(new Error("library load failed")); };
     document.head.appendChild(script);
   }).catch((error) => { libraryPromise = null; throw error; });
   return libraryPromise;
@@ -84,7 +87,6 @@ export default function RestaurantVectorMap({ restaurants, position, selectedId,
     const showFailure = () => { if (!cancelled && !loaded) setError("지도를 불러오지 못했어요. 인터넷 연결과 브라우저의 그래픽 가속을 확인해 주세요."); };
     loadMapLibrary().then((gl) => {
       if (cancelled || !element.current) return;
-      if (!gl.supported()) throw new Error("WebGL unavailable");
       const initial = latest.current.position;
       const map = new gl.Map({ container: element.current, style: "https://tiles.openfreemap.org/styles/liberty", center: initial ? [initial[1], initial[0]] : [129.326, 35.576], zoom: 13, maxZoom: 19, attributionControl: true, dragRotate: false, pitchWithRotate: false, touchPitch: false });
       mapRef.current = map;
@@ -96,6 +98,11 @@ export default function RestaurantVectorMap({ restaurants, position, selectedId,
         loaded = true;
         clearTimeout(timer);
         setError("");
+        for (const layer of map.getStyle().layers) {
+          if (layer.type === "symbol" && /name/.test(JSON.stringify(layer.layout?.["text-field"] ?? ""))) {
+            map.setLayoutProperty(layer.id, "text-field", ["coalesce", ["get", "name:ko"], ["get", "name:nonlatin"], ["get", "name"], ["get", "name:latin"]]);
+          }
+        }
         map.addSource("saved-restaurants", { type: "geojson", data: emptyData, cluster: true, clusterRadius: 48, clusterMaxZoom: 14 });
         map.addLayer({ id: "restaurant-clusters", type: "circle", source: "saved-restaurants", filter: ["has", "point_count"], paint: { "circle-color": "#237d68", "circle-radius": ["step", ["get", "point_count"], 21, 20, 26, 100, 32], "circle-stroke-color": "#fff", "circle-stroke-width": 3 } });
         map.addLayer({ id: "restaurant-counts", type: "symbol", source: "saved-restaurants", filter: ["has", "point_count"], layout: { "text-field": ["get", "point_count_abbreviated"], "text-font": ["Noto Sans Regular"], "text-size": 14 }, paint: { "text-color": "#fff" } });
