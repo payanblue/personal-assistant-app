@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import RestaurantRasterMap from "./restaurant-raster-map";
 
 export type MapBounds = { getWest: () => number; getSouth: () => number; getEast: () => number; getNorth: () => number };
 type PickEvent = { latlng: { lat: number; lng: number } };
@@ -47,7 +48,7 @@ function loadMapLibrary(): Promise<GLApi> {
     const script = document.createElement("script");
     script.src = "https://unpkg.com/maplibre-gl@5.6.2/dist/maplibre-gl.js";
     const timeout = setTimeout(() => { script.remove(); reject(new Error("library load timed out")); }, 15000);
-    script.onload = () => { clearTimeout(timeout); global.maplibregl ? resolve(global.maplibregl) : reject(new Error("library unavailable")); };
+    script.onload = () => { clearTimeout(timeout); if (global.maplibregl) resolve(global.maplibregl); else reject(new Error("library unavailable")); };
     script.onerror = () => { clearTimeout(timeout); script.remove(); reject(new Error("library load failed")); };
     document.head.appendChild(script);
   }).catch((error) => { libraryPromise = null; throw error; });
@@ -79,12 +80,14 @@ export default function RestaurantVectorMap({ restaurants, position, selectedId,
   const [ready, setReady] = useState(false);
   const [error, setError] = useState("");
   const [attempt, setAttempt] = useState(0);
+  const [fallback, setFallback] = useState(false);
   useEffect(() => {
+    if (fallback) return;
     let cancelled = false;
     let loaded = false;
     let observer: ResizeObserver | undefined;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const showFailure = () => { if (!cancelled && !loaded) setError("지도를 불러오지 못했어요. 인터넷 연결과 브라우저의 그래픽 가속을 확인해 주세요."); };
+    const showFailure = () => { if (!cancelled && !loaded) setFallback(true); };
     loadMapLibrary().then((gl) => {
       if (cancelled || !element.current) return;
       const initial = latest.current.position;
@@ -92,7 +95,7 @@ export default function RestaurantVectorMap({ restaurants, position, selectedId,
       mapRef.current = map;
       map.addControl(new gl.NavigationControl({ showCompass: false }), "top-left");
       timer = setTimeout(showFailure, 20000);
-      map.on("error", showFailure);
+      map.on("error", () => { /* 일시적인 타일 오류는 초기 로딩 제한 시간까지 기다린다. */ });
       map.on("load", () => {
         if (cancelled) return;
         loaded = true;
@@ -134,7 +137,7 @@ export default function RestaurantVectorMap({ restaurants, position, selectedId,
       });
       observer = new ResizeObserver(() => map.resize());
       observer.observe(element.current);
-    }).catch(showFailure);
+    }).catch((reason: unknown) => { console.warn("Vector map fallback:", reason instanceof Error ? reason.message : String(reason)); showFailure(); });
     return () => {
       cancelled = true;
       clearTimeout(timer);
@@ -143,11 +146,12 @@ export default function RestaurantVectorMap({ restaurants, position, selectedId,
       mapRef.current?.remove();
       mapRef.current = null;
     };
-  }, [attempt]);
+  }, [attempt, fallback]);
   useEffect(() => {
     if (!ready) return;
     mapRef.current?.getSource("saved-restaurants")?.setData({ type: "FeatureCollection", features: restaurants.filter(validMapPoint).map((item) => ({ type: "Feature", geometry: { type: "Point", coordinates: [item.longitude, item.latitude] }, properties: { id: item.id, name: item.name, visited: item.visited, selected: item.id === selectedId } })) });
     mapRef.current?.getSource("my-position")?.setData({ type: "FeatureCollection", features: position ? [{ type: "Feature", geometry: { type: "Point", coordinates: [position[1], position[0]] }, properties: {} }] : [] });
   }, [ready, restaurants, position, selectedId]);
+  if (fallback) return <RestaurantRasterMap restaurants={restaurants} position={position} selectedId={selectedId} picking={picking} onSelect={onSelect} onBounds={onBounds} onReady={onReady} retry={() => { setFallback(false); setReady(false); setAttempt((value) => value + 1); }} />;
   return <><div className="restaurant-map" ref={element} aria-label="저장한 맛집 지도" />{!ready && !error && <div className="vector-map-status" role="status">지도를 불러오는 중…</div>}{error && <div className="vector-map-status" role="alert"><p>{error}</p><button onClick={() => { setError(""); setReady(false); setAttempt((value) => value + 1); }}>다시 시도</button></div>}</>;
 }

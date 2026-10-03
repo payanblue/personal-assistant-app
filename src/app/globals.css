@@ -3050,3 +3050,7 @@ h1 {
 .restaurant-selected-card .restaurant-card-close { padding: 0; background: transparent; color: #52685c; font-size: 24px; }
 .restaurant-selected-card p, .restaurant-selected-card small { font-size: 12px; line-height: 1.5; }
 .restaurant-selected-card strong { font-size: 16px; }
+
+.raster-map-notice { position: absolute; bottom: 24px; left: 8px; z-index: 400; background: #ffffffdc; padding: 3px 6px; border-radius: 6px; font-size: 9px; color: #52685c; }
+.raster-cluster span { display: grid; place-items: center; width: 42px; height: 42px; border: 3px solid #fff; border-radius: 50%; background: #237d68; color: #fff; font-weight: 800; }
+.restaurant-map .leaflet-top.leaflet-left { top: 56px; }
