@@ -3821,27 +3821,27 @@ function RestaurantMapView({
         body: JSON.stringify({ name: item.name.trim(), address: nameOnly ? "" : item.lookupAddress ?? item.address ?? "" }),
       });
       if (!response.ok) throw new Error("provider unavailable");
-      const data = await response.json() as { verified: RestaurantCandidate | null; candidates: RestaurantCandidate[] };
+      const data = await response.json() as { verified: RestaurantCandidate | null; candidates: RestaurantCandidate[]; addressSearched?: boolean; addressSearchFailed?: boolean };
       if (data.verified) {
         const place = data.verified;
         return { ...item, name: place.name, address: place.address, status: "confirmed" as const,
           confirmed: { name: place.name, address: place.address, latitude: place.latitude, longitude: place.longitude,
             category: (/국밥|해장국/.test(place.name) ? "국밥" : /김밥/.test(place.name) ? "치킨·분식" : /버거/.test(place.name) ? "양식" : /중식|중국/.test(place.category) ? "중식" : /일식/.test(place.category) ? "일식" : /커피|카페/.test(place.category) ? "카페·디저트" : /분식/.test(place.category) ? "치킨·분식" : "기타") as Exclude<RestaurantCategory, "전체">,
             tags: [], memo: "", visited: false, sourceUrl: place.sourceUrl, sourceAttribution: place.sourceAttribution },
-          candidates: [], message: "상호명·주소 대조 완료" };
+          candidates: [], message: data.addressSearched ? "주소로 지점을 추가 검색해 상호명·건물번호까지 확인했어요." : "상호명·주소 대조 완료" };
       }
       return { ...item, status: "needs-review" as const, confirmed: undefined,
-        candidates: data.candidates.filter((place) => place.open).slice(0, 10), message: nameOnly ? "상호명으로 다시 검색했어요. 올바른 주소의 장소를 선택하세요." : "이름·주소가 일치하지 않아요. 상호명을 수정해 재검색하거나 후보를 선택하세요." };
+        candidates: data.candidates.filter((place) => place.open).slice(0, 10), message: nameOnly ? "상호명으로 다시 검색했어요. 주소를 입력해 지점을 좁힐 수도 있어요." : data.addressSearchFailed ? "주소 추가 검색을 완료하지 못했어요. 이름 검색 후보를 확인하거나 다시 검색하세요." : "주소에 가까운 동일 상호 후보를 표시했어요. 건물번호까지 일치하지 않으면 직접 확인해 주세요." };
     } catch {
       return { ...item, status: "needs-review" as const, confirmed: undefined, candidates: [], message: "검색 서비스에 연결하지 못했어요. 다시 확인할 수 있어요." };
     }
   }, []);
-  const retryScreenshot = async (item: RestaurantImportItem) => {
+  const retryScreenshot = async (item: RestaurantImportItem, withAddress = false) => {
     if (identifying || readingScreenshots.current || !item.name.trim()) return;
     setIdentifying(true);
-    setBulkItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, candidates: [], message: "수정한 상호명으로 검색 중…" } : entry));
+    setBulkItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, candidates: [], message: withAddress ? "주소로 동일 상호의 지점을 좁히는 중…" : "수정한 상호명으로 검색 중…" } : entry));
     try {
-      const result = await identifyScreenshot(item, true);
+      const result = await identifyScreenshot(withAddress ? { ...item, lookupAddress: undefined } : item, !withAddress);
       setBulkItems((current) => current.map((entry) => entry.id === item.id ? result : entry));
     } finally { setIdentifying(false); }
   };
@@ -4120,6 +4120,8 @@ function RestaurantMapView({
                       />
                       <input value={item.address ?? ""} placeholder="주소 인식 결과 · 틀리면 수정" aria-label={`${index + 1}번 캡처 주소`} disabled={identifying || item.status === "processing" || activeBulkId === item.id} onChange={(event) => setBulkItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, address: event.target.value, lookupAddress: undefined, status: "needs-review", confirmed: undefined, candidates: [], message: "수정한 내용으로 다시 검색하세요." } : entry))} />
                       {item.message && <small>{item.message}</small>}
+                      <button className="restaurant-candidate" onClick={() => void retryScreenshot(item, true)} disabled={identifying || item.status === "processing" || !item.name.trim() || !item.address?.trim() || activeBulkId !== null}>주소로 지점 좁히기</button>
+                      <small>동일 상호가 여러 곳이면 주소에 시·구와 도로명·건물번호를 입력하세요.</small>
                       {!identifying && item.candidates?.map((place) => <button className="restaurant-candidate" key={place.sourceUrl} onClick={() => {
                         setBulkItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, name: place.name, address: place.address, confirmed: candidateValue(place), status: "confirmed", candidates: [], message: place.originalCoordinates ? "선택한 장소 확인 완료" : "선택한 주소로 위치를 추정했어요. 등록 후 지도에서 확인하세요." } : entry));
                       }} disabled={activeBulkId !== null}><strong>{place.name}</strong><small>{place.address}</small>{!place.originalCoordinates && <small>주소 기준 추정 위치 · 지도에서 확인 필요</small>}<small>{place.sourceAttribution}</small></button>)}
