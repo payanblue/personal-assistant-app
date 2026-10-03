@@ -3072,6 +3072,18 @@ h1 {
 }
 .restaurant-import-queue .restaurant-candidate:disabled { opacity: .5; }
 .restaurant-source { display: block; margin-top: 8px; font-size: 11px; overflow-wrap: anywhere; }
+.restaurant-capture-preview {
+  position: fixed; inset: 0; z-index: 10000; background: #f5f8f6;
+  display: flex; flex-direction: column; gap: 10px;
+  padding: max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom));
+}
+.restaurant-capture-preview header { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.restaurant-capture-preview button { min-height: 44px; min-width: 44px; border: 0; border-radius: 10px; padding: 10px 14px; background: #2f7658; color: white; }
+.restaurant-capture-preview button:disabled { opacity: .4; }
+.restaurant-capture-controls { display: flex; justify-content: center; align-items: center; gap: 18px; }
+.restaurant-capture-preview small { overflow-wrap: anywhere; color: #53655a; }
+.restaurant-capture-image { min-height: 0; flex: 1; overflow: auto; overscroll-behavior: contain; touch-action: pan-x pan-y pinch-zoom; background: #dbe3dd; }
+.restaurant-capture-image img { display: block; max-width: none; height: auto; }
 .restaurant-import-queue article > button { min-height: 42px; }
 .restaurant-batch-actions { display: grid; gap: 8px; margin-top: 12px; }
 .restaurant-batch-actions p { font-size: 12px; color: #53675d; }

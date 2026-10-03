@@ -3377,6 +3377,7 @@ function loadTesseract() {
 type RestaurantImportItem = {
   id: number;
   fileName: string;
+  imageFile?: File;
   name: string;
   address?: string;
   status: "processing" | "ready" | "needs-review" | "confirmed";
@@ -3519,6 +3520,33 @@ function RestaurantMapView({
   const [mapSearchMessage, setMapSearchMessage] = useState("");
   const [ocrStatus, setOcrStatus] = useState("");
   const [bulkItems, setBulkItems] = useState<RestaurantImportItem[]>([]);
+  const [screenshotPreview, setScreenshotPreview] = useState<{ url: string; fileName: string } | null>(null);
+  const [previewZoom, setPreviewZoom] = useState(1);
+  const previewUrlRef = useRef<string | null>(null);
+  const previewTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const openScreenshotPreview = (item: RestaurantImportItem, trigger: HTMLButtonElement) => {
+    if (!item.imageFile) return;
+    if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
+    const url = URL.createObjectURL(item.imageFile);
+    previewUrlRef.current = url;
+    previewTriggerRef.current = trigger;
+    setPreviewZoom(1);
+    setScreenshotPreview({ url, fileName: item.fileName });
+    window.history.pushState({ personalAssistantOverlay: "restaurant-preview" }, "");
+  };
+  const closeScreenshotPreview = useCallback(() => {
+    if (previewUrlRef.current) window.history.back();
+  }, []);
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && previewUrlRef.current) { event.preventDefault(); closeScreenshotPreview(); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
+    };
+  }, [closeScreenshotPreview]);
   const readingScreenshots = useRef(false);
   const registeringBatch = useRef(false);
   const [identifying, setIdentifying] = useState(false);
@@ -3664,6 +3692,13 @@ function RestaurantMapView({
   };
   useEffect(() => {
     const closeOnBack = () => {
+      if (previewUrlRef.current) {
+        URL.revokeObjectURL(previewUrlRef.current);
+        previewUrlRef.current = null;
+        setScreenshotPreview(null);
+        window.requestAnimationFrame(() => previewTriggerRef.current?.focus());
+        return;
+      }
       if (!restaurantOverlayHistoryRef.current) return;
       restaurantOverlayHistoryRef.current = false;
       detachMapPickHandler();
@@ -3868,6 +3903,7 @@ function RestaurantMapView({
     const queued = files.map((file, index) => ({
       id: startedAt + index,
       fileName: file.name,
+      imageFile: file,
       name: "",
       status: "processing" as const,
     }));
@@ -4093,7 +4129,7 @@ function RestaurantMapView({
         )) : <div className="empty-memos"><strong>{listScope === "area" ? "이 지도 범위에 저장한 맛집이 없어요" : "저장한 맛집이 없어요"}</strong><p>{listScope === "area" ? "지도를 축소하거나 이동해 보세요. 전체 목록에서도 찾을 수 있어요." : "맛집을 등록하면 지도와 목록에 표시돼요."}</p></div>}
       </section>
       {editorOpen && (
-        <div className="restaurant-editor-overlay" role="dialog" aria-modal="true" aria-label="맛집 등록">
+        <div className="restaurant-editor-overlay" role="dialog" aria-modal="true" aria-label="맛집 등록" inert={screenshotPreview ? true : undefined}>
           <section className="restaurant-editor">
             <header><div><p className="eyebrow">내 맛집 지도</p><h2>{editingId === null ? "맛집 등록" : "맛집 수정"}</h2></div><button onClick={closeRestaurantOverlay}>×</button></header>
             <div className="restaurant-import-actions">
@@ -4112,6 +4148,7 @@ function RestaurantMapView({
                   <article className={activeBulkId === item.id ? "active" : ""} key={item.id}>
                     <span>{index + 1}</span>
                     <div>
+                      {item.imageFile && <button className="restaurant-candidate" onClick={(event) => openScreenshotPreview(item, event.currentTarget)}>📷 원본 캡처 보기</button>}
                       <input
                         value={item.name}
                         onChange={(event) => setBulkItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, name: event.target.value, status: "needs-review", confirmed: undefined, candidates: [], message: "수정한 상호명으로 재검색하세요." } : entry))}
@@ -4176,6 +4213,16 @@ function RestaurantMapView({
           </section>
         </div>
       )}
+      {screenshotPreview && <section className="restaurant-capture-preview" role="dialog" aria-modal="true" aria-label="원본 캡처 확인">
+        <header><strong>원본 캡처</strong><button autoFocus onClick={closeScreenshotPreview}>닫고 수정하기</button></header>
+        <div className="restaurant-capture-controls"><button aria-label="캡처 축소" disabled={previewZoom <= 1} onClick={() => setPreviewZoom((zoom) => Math.max(1, zoom - .5))}>−</button><span>{Math.round(previewZoom * 100)}%</span><button aria-label="캡처 확대" disabled={previewZoom >= 4} onClick={() => setPreviewZoom((zoom) => Math.min(4, zoom + .5))}>＋</button></div>
+        <small>{screenshotPreview.fileName} · 확대 후 화면을 밀어 내용을 확인하세요.</small>
+        <div className="restaurant-capture-image">
+          {/* Original local files need a blob URL rather than image optimization. */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={screenshotPreview.url} alt="인식에 사용한 원본 맛집 캡처" style={{ width: `${previewZoom * 100}%` }} />
+        </div>
+      </section>}
     </>
   );
 }
