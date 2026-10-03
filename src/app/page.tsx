@@ -3375,7 +3375,8 @@ type RestaurantImportItem = {
   fileName: string;
   name: string;
   address?: string;
-  status: "processing" | "ready" | "needs-review";
+  status: "processing" | "ready" | "needs-review" | "confirmed";
+  confirmed?: Omit<Restaurant, "id" | "createdAt">;
 };
 
 function likelyRestaurantAddress(text: string) {
@@ -3383,7 +3384,10 @@ function likelyRestaurantAddress(text: string) {
     .split(/\n+/)
     .flatMap((line) => {
       const cleaned = line.replace(/[^0-9가-힣·\- ]/g, " ").replace(/\s+/g, " ").trim();
-      return [...cleaned.matchAll(/([가-힣0-9·]+(?:로|길)\s*\d+(?:-\d+)?)/g)].map((match) => match[1].trim());
+      return [...cleaned.matchAll(/([가-힣0-9·]+(?:로|길)\s*\d+(?:-\d+)?)/g)].map((match) => {
+        const prefix = cleaned.slice(0, match.index).match(/(?:서울|부산|대구|인천|광주|대전|울산|세종|경기|강원|충북|충남|전북|전남|경북|경남|제주)[가-힣 ]*$/)?.[0] ?? "";
+        return `${prefix}${match[1]}`.trim();
+      });
     })
     .filter((value) => value.length >= 5);
   return [...new Set(matches)].sort((a, b) => a.length - b.length)[0] ?? "";
@@ -3436,13 +3440,14 @@ async function resolveSharedMapPlace(url: string): Promise<ResolvedMapPlace | nu
 function likelyRestaurantName(text: string) {
   const foodWords = /(식당|식탁|국밥|짬뽕|버거|마루|카페|커피|횟집|고기|냉면|치킨|분식|초밥|수제|한우|국수|우동|돈까스|돈가스|갈비|곱창|족발|보쌈|김밥|떡볶이|제과|베이커리)/;
   const hardIgnored = /(도로명|지번|리뷰\s*\d*|영업\s*(중|종료)?|라스트\s*오더|복사|\d+(?:\.\d+)?\s*km|지도|검색|SKT|LTE|광역시|남구|중구|진구)/i;
-  const genericCategory = /^(한식|한식당|중식|중식당|일식|일식당|양식|양식당|음식점|카페|베이커리)$/;
-  const mapBackground = /(대학교|대학원|과학관|공학관|교육관|문화회관|학생회관|아파트|주차장|은행|호텔|어린이집|학교|초등|중등|고등|GS25|CU|세븐일레븐)/i;
+  const genericCategory = /^(한식|한식당|중식|중식당|일식|일식당|양식|양식당|음식점|카페|베이커리|돼지고기구이|소고기구이|육류 고기요리|커피전문점)(?:\s|$)/;
+  const mapBackground = /(대학교|대학원|과학관|공학관|교육관|문화회관|학생회관|아파트|주차장|은행|호텔|어린이집|학교|초등|중등|고등|지하차도|교차로|사거리|삼거리|버스정류장|아울렛|GS25|CU|세븐일레븐)/i;
   const lines = text
     .split(/\n+/)
     .map((line) => line.replace(/[^0-9A-Za-z가-힣·&' ]/g, " ").replace(/\s+/g, " ").trim())
-    .map((line) => foodWords.test(line) ? line.replace(/(\S{3,})\s+[가-힣A-Za-z]$/, "$1") : line)
-    .filter((line) => line.length >= 2 && line.length <= 28 && !hardIgnored.test(line) && !genericCategory.test(line));
+    .map((line) => line.replace(/\s+(?:리뷰|방문자|블로그|저장|공유).*$/, "").replace(/\s+\d+(?:\.\d+)?(?:\s+.*)?$/, "").trim())
+    .map((line) => foodWords.test(line) ? line.replace(/\s+[A-Za-z ]+$/, "").replace(/(\S{3,})\s+[가-힣A-Za-z]$/, "$1") : line)
+    .filter((line) => line.length >= 2 && line.length <= 28 && !hardIgnored.test(line) && !genericCategory.test(line) && !mapBackground.test(line) && !/[가-힣0-9]+(?:로|길)\s*\d+/.test(line));
   const frequency = new Map<string, number>();
   lines.forEach((line) => frequency.set(line, (frequency.get(line) ?? 0) + 1));
   return lines
@@ -3505,6 +3510,8 @@ function RestaurantMapView({
   const [mapSearchMessage, setMapSearchMessage] = useState("");
   const [ocrStatus, setOcrStatus] = useState("");
   const [bulkItems, setBulkItems] = useState<RestaurantImportItem[]>([]);
+  const readingScreenshots = useRef(false);
+  const registeringBatch = useRef(false);
   const [activeBulkId, setActiveBulkId] = useState<number | null>(null);
   const [name, setName] = useState("");
   const [address, setAddress] = useState("");
@@ -3733,7 +3740,7 @@ function RestaurantMapView({
     setRating(Math.min(5, Math.max(0, Math.round((restaurant.rating ?? 0) * 2) / 2))); setVisited(restaurant.visited); setResults([]); setOcrStatus(""); openRestaurantOverlay();
   };
   const saveRestaurant = () => {
-    if (!name.trim() || latitude === null || longitude === null) {
+    if (!name.trim() || !address.trim() || latitude === null || longitude === null || !Number.isFinite(latitude) || !Number.isFinite(longitude) || Math.abs(latitude) > 90 || Math.abs(longitude) > 180) {
       window.alert("상호명을 검색한 뒤 정확한 장소를 선택해 주세요.");
       return;
     }
@@ -3742,23 +3749,47 @@ function RestaurantMapView({
       tags: tags.split(/[,#]/).map((tag) => tag.trim()).filter(Boolean),
       memo: memo.trim(), mapUrl: mapUrl || undefined, rating: rating || undefined, visited,
     };
+    if (activeBulkId !== null) {
+      setBulkItems((current) => current.map((item) => item.id === activeBulkId
+        ? { ...item, name: value.name, address: value.address, status: "confirmed", confirmed: value }
+        : item));
+      setActiveBulkId(null);
+      resetFields();
+      setOcrStatus("이 장소를 확인했어요. ‘확인한 맛집 모두 등록’을 누르면 한 번에 저장돼요.");
+      return;
+    }
     setRestaurants((current) => editingId === null
       ? [{ id: Date.now(), ...value, createdAt: new Date().toISOString() }, ...current]
       : current.map((item) => item.id === editingId ? { ...item, ...value } : item));
     if (editingId !== null)
       setSelected((current) => current?.id === editingId ? { ...current, ...value } : current);
-    if (activeBulkId !== null) {
-      const remaining = bulkItems.filter((item) => item.id !== activeBulkId);
-      setBulkItems(remaining);
-      setActiveBulkId(null);
-      if (remaining.length) {
-        resetFields();
-        setOcrStatus(`등록했어요. 확인할 캡처가 ${remaining.length}장 남았어요.`);
-      } else closeRestaurantOverlay();
-    } else closeRestaurantOverlay();
+    closeRestaurantOverlay();
+  };
+  const registerConfirmedBatch = () => {
+    if (registeringBatch.current) return;
+    const confirmed = bulkItems.filter((item) => item.status === "confirmed" && item.confirmed);
+    if (!confirmed.length) return;
+    registeringBatch.current = true;
+    const normalized = (value: string) => value.replace(/[\s,·-]/g, "").toLowerCase();
+    const seen = new Set(restaurants.map((item) => `${normalized(item.name)}|${normalized(item.address)}`));
+    const additions: Restaurant[] = [];
+    let nextId = Math.max(Date.now(), ...restaurants.map((item) => item.id + 1));
+    for (const item of confirmed) {
+      const value = item.confirmed!;
+      const key = `${normalized(value.name)}|${normalized(value.address)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      additions.push({ ...value, id: nextId++, createdAt: new Date().toISOString() });
+    }
+    setRestaurants((current) => [...additions, ...current]);
+    const finished = new Set(confirmed.map((item) => item.id));
+    setBulkItems((current) => current.filter((item) => !finished.has(item.id)));
+    setOcrStatus(`${additions.length}곳 등록 · 중복 ${confirmed.length - additions.length}곳 제외. 확인 전인 캡처는 목록에 남겨 두었어요.`);
+    window.setTimeout(() => { registeringBatch.current = false; }, 0);
   };
   const readScreenshots = useCallback(async (files: File[]) => {
-    if (!files.length) return;
+    if (!files.length || readingScreenshots.current) return;
+    readingScreenshots.current = true;
     const startedAt = Date.now();
     const queued = files.map((file, index) => ({
       id: startedAt + index,
@@ -3796,7 +3827,7 @@ function RestaurantMapView({
           const candidate = likelyRestaurantName(recognizedText);
           const addressCandidate = likelyRestaurantAddress(recognizedText);
           setBulkItems((current) => current.map((entry) => entry.id === item.id
-            ? { ...entry, name: candidate, address: addressCandidate, status: candidate ? "ready" : "needs-review" }
+            ? { ...entry, name: candidate, address: addressCandidate, status: "needs-review" }
             : entry));
         } catch {
           setBulkItems((current) => current.map((entry) => entry.id === item.id
@@ -3805,12 +3836,14 @@ function RestaurantMapView({
         }
       }
       await worker?.terminate();
-      setOcrStatus("인식이 끝났어요. 이름을 확인한 뒤 ‘장소 확인’을 눌러 주세요.");
+      setOcrStatus("인식이 끝났어요. 아직 등록 전이에요. 이름·주소와 장소를 확인하면 여러 곳을 한 번에 등록할 수 있어요.");
     } catch {
       setBulkItems((current) => current.map((entry) => queued.some((item) => item.id === entry.id)
         ? { ...entry, status: "needs-review" }
         : entry));
       setOcrStatus("자동 인식을 불러오지 못했어요. 각 칸에 상호명을 직접 입력할 수 있어요.");
+    } finally {
+      readingScreenshots.current = false;
     }
   }, []);
   const checkBulkItem = (item: RestaurantImportItem) => {
@@ -3819,6 +3852,15 @@ function RestaurantMapView({
     setActiveBulkId(item.id);
     setQuery(item.name.trim());
     setName(item.name.trim());
+    setAddress(item.address ?? "");
+    if (item.confirmed) {
+      const value = item.confirmed;
+      setLatitude(value.latitude); setLongitude(value.longitude); setCategory(value.category);
+      setTags(value.tags.join(", ")); setMemo(value.memo); setMapUrl(value.mapUrl ?? "");
+      setRating(value.rating ?? 0); setVisited(value.visited);
+      return;
+    }
+    setCategory("기타");
     setOcrStatus("검색 결과에서 정확한 장소를 선택한 뒤 저장하세요.");
     void searchPlace(item.name.trim(), item.address ?? "");
   };
@@ -3959,26 +4001,36 @@ function RestaurantMapView({
             {ocrStatus && <p className="ocr-status">{ocrStatus}</p>}
             {bulkItems.length > 0 && (
               <section className="restaurant-import-queue">
-                <div><strong>캡처 임시 보관함</strong><span>{bulkItems.length}장</span></div>
+                <div><strong>캡처 일괄 등록</strong><span>확인 {bulkItems.filter((item) => item.status === "confirmed").length} / {bulkItems.length}장</span></div>
                 {bulkItems.map((item, index) => (
                   <article className={activeBulkId === item.id ? "active" : ""} key={item.id}>
                     <span>{index + 1}</span>
                     <div>
                       <input
                         value={item.name}
-                        onChange={(event) => setBulkItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, name: event.target.value, status: "ready" } : entry))}
+                        onChange={(event) => setBulkItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, name: event.target.value, status: "needs-review", confirmed: undefined } : entry))}
                         placeholder={item.status === "processing" ? "상호명 인식 중…" : "상호명을 직접 입력"}
-                        disabled={item.status === "processing"}
+                        disabled={item.status === "processing" || activeBulkId === item.id}
+                        aria-label={`${index + 1}번 캡처 상호명`}
                       />
-                      <small>{item.fileName}{item.address ? ` · ${item.address}` : ""}{item.status === "needs-review" ? " · 이름 확인 필요" : ""}</small>
+                      <input value={item.address ?? ""} placeholder="주소 인식 결과 · 틀리면 수정" aria-label={`${index + 1}번 캡처 주소`} disabled={item.status === "processing" || activeBulkId === item.id} onChange={(event) => setBulkItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, address: event.target.value, status: "needs-review", confirmed: undefined } : entry))} />
+                      <small>{item.fileName}{item.address ? ` · ${item.address}` : ""}{item.status === "needs-review" ? " · 장소 확인 필요" : item.status === "confirmed" ? " · 확인 완료 (등록 전)" : ""}</small>
                     </div>
-                    <button onClick={() => checkBulkItem(item)} disabled={item.status === "processing" || !item.name.trim()}>장소 확인</button>
-                    <button className="queue-remove" aria-label="목록에서 제거" onClick={() => setBulkItems((current) => current.filter((entry) => entry.id !== item.id))}>×</button>
+                    <button onClick={() => checkBulkItem(item)} disabled={item.status === "processing" || !item.name.trim() || activeBulkId !== null}> {item.status === "confirmed" ? "다시 확인" : "장소 확인"}</button>
+                    <button className="queue-remove" aria-label="목록에서 제거" disabled={activeBulkId === item.id} onClick={() => setBulkItems((current) => current.filter((entry) => entry.id !== item.id))}>×</button>
                   </article>
                 ))}
               </section>
             )}
-            <label>저장할 상호명<input value={name} onChange={(event) => setName(event.target.value)} placeholder="예: 모도리식탁" autoFocus /></label>
+            {bulkItems.length > 0 && activeBulkId === null && editingId === null && <div className="restaurant-batch-actions">
+              <p>상호명·주소는 자동 인식 후보예요. 장소를 확인한 항목만 등록합니다.</p>
+              <button onClick={registerConfirmedBatch} disabled={!bulkItems.some((item) => item.status === "confirmed") || bulkItems.some((item) => item.status === "processing")}>
+                확인한 맛집 모두 등록 ({bulkItems.filter((item) => item.status === "confirmed").length}곳)
+              </button>
+              <button className="cancel" onClick={closeRestaurantOverlay}>닫기</button>
+            </div>}
+            {(bulkItems.length === 0 || activeBulkId !== null || editingId !== null) && <>
+            <label>{activeBulkId !== null ? "이 캡처의 상호명" : "저장할 상호명"}<input value={name} onChange={(event) => setName(event.target.value)} placeholder="예: 모도리식탁" autoFocus /></label>
             <label>주소 또는 위치 검색<div className="restaurant-search-row"><input value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void searchPlace(); }} placeholder="예: 옥현로46번길 9-12" /><button onClick={() => void searchPlace()} disabled={searching}>{searching ? "검색 중" : "검색"}</button></div></label>
             {searchMessage && <p className="restaurant-search-message">{searchMessage}</p>}
             {results.length > 0 && <div className="restaurant-search-results">{results.map((result) => <button onClick={() => chooseResult(result)} key={`${result.lat}-${result.lon}`}><strong>{result.display_name.split(",")[0]}</strong><small>{result.display_name}</small></button>)}</div>}
@@ -4000,8 +4052,9 @@ function RestaurantMapView({
             <label className="restaurant-visited"><input type="checkbox" checked={visited} onChange={(event) => setVisited(event.target.checked)} /><span>이미 가본 곳</span></label>
             <footer>
               {editingId !== null && <button className="danger" onClick={() => { if (window.confirm("이 맛집을 삭제할까요?")) { setRestaurants((current) => current.filter((item) => item.id !== editingId)); setSelected(null); closeRestaurantOverlay(); } }}>삭제</button>}
-              <button className="cancel" onClick={closeRestaurantOverlay}>취소</button><button onClick={saveRestaurant}>저장</button>
+              <button className="cancel" onClick={() => { if (activeBulkId !== null) { setActiveBulkId(null); resetFields(); } else closeRestaurantOverlay(); }}>취소</button><button onClick={saveRestaurant}>{activeBulkId !== null ? "이 장소 확인 완료" : "저장"}</button>
             </footer>
+            </>}
           </section>
         </div>
       )}
