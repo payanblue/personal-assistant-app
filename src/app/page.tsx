@@ -3824,8 +3824,9 @@ function RestaurantMapView({
       const data = await response.json() as { verified: RestaurantCandidate | null; candidates: RestaurantCandidate[]; addressSearched?: boolean; addressSearchFailed?: boolean; noRegionalCandidates?: boolean };
       if (data.verified) {
         const place = data.verified;
-        return { ...item, name: place.name, address: place.address, status: "confirmed" as const,
-          confirmed: { name: place.name, address: place.address, latitude: place.latitude, longitude: place.longitude,
+        const registrationName = /^\s*(?:\(주\)|㈜|주식회사)/.test(place.name) ? item.name.trim() : place.name;
+        return { ...item, name: registrationName, address: place.address, status: "confirmed" as const,
+          confirmed: { name: registrationName, address: place.address, latitude: place.latitude, longitude: place.longitude,
             category: (/국밥|해장국/.test(place.name) ? "국밥" : /김밥/.test(place.name) ? "치킨·분식" : /버거/.test(place.name) ? "양식" : /중식|중국/.test(place.category) ? "중식" : /일식/.test(place.category) ? "일식" : /커피|카페/.test(place.category) ? "카페·디저트" : /분식/.test(place.category) ? "치킨·분식" : "기타") as Exclude<RestaurantCategory, "전체">,
             tags: [], memo: "", visited: false, sourceUrl: place.sourceUrl, sourceAttribution: place.sourceAttribution },
           candidates: [], message: data.addressSearched ? "주소로 지점을 추가 검색해 상호명·건물번호까지 확인했어요." : "상호명·주소 대조 완료" };
@@ -4122,6 +4123,8 @@ function RestaurantMapView({
                       {item.message && <small>{item.message}</small>}
                       <button className="restaurant-candidate" onClick={() => void retryScreenshot(item, true)} disabled={identifying || item.status === "processing" || !item.name.trim() || !item.address?.trim() || activeBulkId !== null}>주소로 지점 좁히기</button>
                       <small>동일 상호가 여러 곳이면 주소에 시·구와 도로명·건물번호를 입력하세요.</small>
+                      <a className="restaurant-candidate" href={`https://search.naver.com/search.naver?where=blog&query=${encodeURIComponent(`${item.name} ${item.address ?? ""}`)}`} target="_blank" rel="noopener noreferrer">블로그에서 상호·주소 확인</a>
+                      <a className="restaurant-candidate" href={`https://search.naver.com/search.naver?query=${encodeURIComponent(`${item.name} ${item.address ?? ""}`)}`} target="_blank" rel="noopener noreferrer">인터넷에서 상호·주소 확인</a>
                       {!identifying && item.candidates?.map((place) => <button className="restaurant-candidate" key={place.sourceUrl} onClick={() => {
                         setBulkItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, name: place.name, address: place.address, confirmed: candidateValue(place), status: "confirmed", candidates: [], message: place.originalCoordinates ? "선택한 장소 확인 완료" : "선택한 주소로 위치를 추정했어요. 등록 후 지도에서 확인하세요." } : entry));
                       }} disabled={activeBulkId !== null}><strong>{place.name}</strong><small>{place.address}</small>{!place.originalCoordinates && <small>주소 기준 추정 위치 · 지도에서 확인 필요</small>}<small>{place.sourceAttribution}</small></button>)}

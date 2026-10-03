@@ -32,7 +32,7 @@ export function roadIdentity(value: string) {
   return normalizeIdentity(value.replace(/([로길])\s+(?=\d+번길)/g, '$1').match(/[가-힣0-9·]+(?:로|길)\s*\d+(?:-\d+)?/)?.[0] ?? '');
 }
 export function restaurantNameMatches(a: string, b: string) {
-  const clean = (value: string) => value.replace(/\s+[가-힣]+(?:본점|직영점|점)$/, '').replace(/수제(?=버거)/g, '');
+  const clean = (value: string) => value.replace(/^\s*(?:\(주\)|㈜|주식회사)\s*/, '').replace(/\s+[가-힣]+(?:본점|직영점|점)$/, '').replace(/수제(?=버거)/g, '').replace(/식당$/, '');
   a = normalizeIdentity(clean(a)); b = normalizeIdentity(clean(b));
   if (a === b && a.length >= 2) return true;
   if (Math.min(a.length, b.length) < 5) return false;
