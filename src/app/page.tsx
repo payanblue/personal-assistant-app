@@ -5,6 +5,16 @@ import { restaurantNameMatches, roadIdentity, type RestaurantCandidate } from ".
 import KoreanLunarCalendar from "korean-lunar-calendar";
 import RestaurantVectorMap, { distanceKm, validMapPoint, type MapBounds, type RestaurantMapController } from "../components/restaurant-vector-map";
 
+// Keep the router's native history metadata even before Next.js patches history.
+// Replacing it with only our overlay flag makes Next.js reload on browser Back.
+function assistantHistoryState(state: Record<string, unknown>) {
+  const previous = { ...window.history.state };
+  for (const key of Object.keys(previous)) {
+    if (key.startsWith("personalAssistant")) delete previous[key];
+  }
+  return { ...previous, ...state };
+}
+
 type Tab = "home" | "memo" | "work" | "calendar" | "restaurants" | "more" | "weather" | "charge";
 type VoiceKind = "memo" | "work" | "calendar";
 
@@ -3533,7 +3543,7 @@ function RestaurantMapView({
     previewClosingRef.current = false;
     setPreviewZoom(1);
     setScreenshotPreview({ url, fileName: item.fileName });
-    window.history.pushState({ personalAssistantOverlay: "restaurant-preview" }, "");
+    window.history.pushState(assistantHistoryState({ personalAssistantOverlay: "restaurant-preview" }), "");
   };
   const closeScreenshotPreview = useCallback(() => {
     if (!previewUrlRef.current || previewClosingRef.current) return;
@@ -3689,7 +3699,7 @@ function RestaurantMapView({
   };
   const openRestaurantOverlay = () => {
     if (!restaurantOverlayHistoryRef.current) {
-      window.history.pushState({ personalAssistantOverlay: "restaurant" }, "");
+      window.history.pushState(assistantHistoryState({ personalAssistantOverlay: "restaurant" }), "");
       restaurantOverlayHistoryRef.current = true;
     }
     setEditorOpen(true);
@@ -4697,9 +4707,9 @@ export default function Home() {
     voiceOpenRef.current = voiceOpen;
   }, [voiceOpen]);
   useEffect(() => {
-    window.history.replaceState({ personalAssistantRoot: true }, "");
+    window.history.replaceState(assistantHistoryState({ personalAssistantRoot: true }), "");
     if (tabRef.current !== "home")
-      window.history.pushState({ personalAssistantTab: tabRef.current }, "");
+      window.history.pushState(assistantHistoryState({ personalAssistantTab: tabRef.current }), "");
     const handleBack = (event: PopStateEvent) => {
       if (voiceOpenRef.current) {
         voiceOpenRef.current = false;
@@ -4720,7 +4730,7 @@ export default function Home() {
     const shareTarget = params.get("share-target");
     if (!shareTarget) return;
     const cleanUrl = `${window.location.pathname}${window.location.hash}`;
-    window.history.replaceState({ personalAssistantRoot: true }, "", cleanUrl);
+    window.history.replaceState(assistantHistoryState({ personalAssistantRoot: true }), "", cleanUrl);
     if (shareTarget === "error") {
       window.alert("공유한 사진이나 장소 정보를 가져오지 못했어요. 다시 공유해 주세요.");
       return;
@@ -4736,7 +4746,7 @@ export default function Home() {
         if (files.length) setSharedRestaurantFiles(files);
         if (place) setSharedRestaurantPlace(place);
         window.sessionStorage.setItem("my-assistant-active-tab", "restaurants");
-        window.history.pushState({ personalAssistantTab: "restaurants" }, "", cleanUrl);
+        window.history.pushState(assistantHistoryState({ personalAssistantTab: "restaurants" }), "", cleanUrl);
         window.requestAnimationFrame(() => window.scrollTo(0, 0));
       })
       .catch(() => window.alert("공유한 사진이나 장소 정보를 읽지 못했어요. 다시 시도해 주세요."));
@@ -4749,14 +4759,14 @@ export default function Home() {
       return;
     }
     if (currentTab === "home")
-      window.history.pushState({ personalAssistantTab: nextTab }, "");
-    else window.history.replaceState({ personalAssistantTab: nextTab }, "");
+      window.history.pushState(assistantHistoryState({ personalAssistantTab: nextTab }), "");
+    else window.history.replaceState(assistantHistoryState({ personalAssistantTab: nextTab }), "");
     tabRef.current = nextTab;
     setTab(nextTab);
     window.requestAnimationFrame(() => window.scrollTo(0, 0));
   };
   const openVoiceSheet = () => {
-    window.history.pushState({ personalAssistantVoice: true }, "");
+    window.history.pushState(assistantHistoryState({ personalAssistantVoice: true }), "");
     voiceOpenRef.current = true;
     setVoiceOpen(true);
   };
