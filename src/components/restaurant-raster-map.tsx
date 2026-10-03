@@ -44,7 +44,7 @@ export default function RestaurantRasterMap({ restaurants, position, selectedId,
     let cancelled = false; let map: RasterMap | undefined; let observer: ResizeObserver | undefined;
     loadRaster().then((api) => {
       if (cancelled || !element.current) return;
-      map = api.map(element.current, { zoomControl: true, zoomSnap: 1 });
+      map = api.map(element.current, { zoomControl: true, zoomSnap: 1, preferCanvas: true });
       map.setView(latest.current.position ?? [35.576, 129.326], 13);
       api.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' }).addTo(map);
       const layer = api.layerGroup().addTo(map);
