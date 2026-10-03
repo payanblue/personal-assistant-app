@@ -3524,18 +3524,31 @@ function RestaurantMapView({
   const [previewZoom, setPreviewZoom] = useState(1);
   const previewUrlRef = useRef<string | null>(null);
   const previewTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const previewClosingRef = useRef(false);
   const openScreenshotPreview = (item: RestaurantImportItem, trigger: HTMLButtonElement) => {
-    if (!item.imageFile) return;
-    if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
+    if (!item.imageFile || previewUrlRef.current) return;
     const url = URL.createObjectURL(item.imageFile);
     previewUrlRef.current = url;
     previewTriggerRef.current = trigger;
+    previewClosingRef.current = false;
     setPreviewZoom(1);
     setScreenshotPreview({ url, fileName: item.fileName });
     window.history.pushState({ personalAssistantOverlay: "restaurant-preview" }, "");
   };
   const closeScreenshotPreview = useCallback(() => {
-    if (previewUrlRef.current) window.history.back();
+    if (!previewUrlRef.current || previewClosingRef.current) return;
+    // Back is asynchronous: repeated taps must not also consume the editor entry.
+    previewClosingRef.current = true;
+    if (window.history.state?.personalAssistantOverlay === "restaurant-preview") {
+      window.history.back();
+    } else {
+      URL.revokeObjectURL(previewUrlRef.current);
+      previewUrlRef.current = null;
+      previewClosingRef.current = false;
+      setScreenshotPreview(null);
+      setEditorOpen(true);
+      window.requestAnimationFrame(() => previewTriggerRef.current?.focus());
+    }
   }, []);
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -3691,12 +3704,21 @@ function RestaurantMapView({
     setEditorOpen(false);
   };
   useEffect(() => {
-    const closeOnBack = () => {
+    const closeOnBack = (event: PopStateEvent) => {
+      // Returning from a nested preview belongs to the editor, not the map.
+      if (event.state?.personalAssistantOverlay === "restaurant-preview") return;
       if (previewUrlRef.current) {
         URL.revokeObjectURL(previewUrlRef.current);
         previewUrlRef.current = null;
+        previewClosingRef.current = false;
         setScreenshotPreview(null);
+        setEditorOpen(true);
         window.requestAnimationFrame(() => previewTriggerRef.current?.focus());
+        return;
+      }
+      if (event.state?.personalAssistantOverlay === "restaurant") {
+        restaurantOverlayHistoryRef.current = true;
+        setEditorOpen(true);
         return;
       }
       if (!restaurantOverlayHistoryRef.current) return;
@@ -4148,7 +4170,7 @@ function RestaurantMapView({
                   <article className={activeBulkId === item.id ? "active" : ""} key={item.id}>
                     <span>{index + 1}</span>
                     <div>
-                      {item.imageFile && <button className="restaurant-candidate" onClick={(event) => openScreenshotPreview(item, event.currentTarget)}>📷 원본 캡처 보기</button>}
+                      {item.imageFile && <button className="restaurant-candidate" onClick={(event) => openScreenshotPreview(item, event.currentTarget)}>📷 원본 보기</button>}
                       <input
                         value={item.name}
                         onChange={(event) => setBulkItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, name: event.target.value, status: "needs-review", confirmed: undefined, candidates: [], message: "수정한 상호명으로 재검색하세요." } : entry))}
@@ -4213,8 +4235,8 @@ function RestaurantMapView({
           </section>
         </div>
       )}
-      {screenshotPreview && <section className="restaurant-capture-preview" role="dialog" aria-modal="true" aria-label="원본 캡처 확인">
-        <header><strong>원본 캡처</strong><button autoFocus onClick={closeScreenshotPreview}>닫고 수정하기</button></header>
+      {screenshotPreview && <section className="restaurant-capture-preview" role="dialog" aria-modal="true" aria-label="원본 보기">
+        <header><strong>원본 보기</strong><button autoFocus onClick={closeScreenshotPreview}>닫고 수정하기</button></header>
         <div className="restaurant-capture-controls"><button aria-label="캡처 축소" disabled={previewZoom <= 1} onClick={() => setPreviewZoom((zoom) => Math.max(1, zoom - .5))}>−</button><span>{Math.round(previewZoom * 100)}%</span><button aria-label="캡처 확대" disabled={previewZoom >= 4} onClick={() => setPreviewZoom((zoom) => Math.min(4, zoom + .5))}>＋</button></div>
         <small>{screenshotPreview.fileName} · 확대 후 화면을 밀어 내용을 확인하세요.</small>
         <div className="restaurant-capture-image">
