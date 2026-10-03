@@ -6,7 +6,7 @@ const food = new Set(['restaurant', 'chinese', 'meat', 'bunsik', 'western', 'jap
 type Place = { name?: string; road_address?: string; lot_address?: string; lat?: number; lng?: number; path?: string; category_slug?: string; source_category?: string; geo_confidence?: number; status?: string; region_code?: string };
 export async function POST(request: Request) {
   try {
-    const body = await request.json() as { name?: unknown; address?: unknown };
+    const body = await request.json() as { name?: unknown; address?: unknown; nameOnly?: unknown };
     if (typeof body.name !== 'string' || body.name.trim().length < 2 || body.name.length > 80 || (body.address !== undefined && typeof body.address !== 'string'))
       return NextResponse.json({ error: 'invalid-query' }, { status: 400 });
     const name = body.name.trim(), address = typeof body.address === 'string' ? body.address.slice(0, 180) : '';
@@ -56,12 +56,12 @@ export async function POST(request: Request) {
       name: item.name!, address: item.road_address || item.lot_address!, lotAddress: item.lot_address, latitude: item.lat!, longitude: item.lng!,
       category: item.source_category ?? '', sourceUrl: `https://place.clariosync.com/p/${item.path?.split('/')[2] ?? ''}/${encodeURIComponent(item.name!)}`,
       sourceAttribution: attribution, originalCoordinates: item.geo_confidence === 2, open: item.status === 'open',
-    }));
+    })).filter((item) => regionMatches(address, item.address));
     candidates.sort((a, b) => Number(restaurantNameMatches(name, b.name)) - Number(restaurantNameMatches(name, a.name)) ||
       candidateAddressScore(address, b) - candidateAddressScore(address, a));
-    const verified = verifiedRestaurant(name, address, candidates);
+    const verified = body.nameOnly === true ? null : verifiedRestaurant(name, address, candidates);
     const addressMatches = candidates.filter((item) => item.open && restaurantNameMatches(name, item.name) && candidateAddressScore(address, item) > 0);
-    return NextResponse.json({ verified, candidates: addressMatches.length ? addressMatches : candidates, attribution, addressSearched, addressSearchFailed });
+    return NextResponse.json({ verified, candidates: addressMatches.length ? addressMatches : candidates, attribution, addressSearched, addressSearchFailed, noRegionalCandidates: candidates.length === 0 && Boolean(address.trim()) });
   } catch {
     return NextResponse.json({ error: 'provider-unavailable' }, { status: 502 });
   }

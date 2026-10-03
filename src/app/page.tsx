@@ -3818,10 +3818,10 @@ function RestaurantMapView({
     try {
       const response = await fetch(`${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/api/restaurant-identify`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: item.name.trim(), address: nameOnly ? "" : item.lookupAddress ?? item.address ?? "" }),
+        body: JSON.stringify({ name: item.name.trim(), address: nameOnly ? item.address ?? "" : item.lookupAddress ?? item.address ?? "", nameOnly }),
       });
       if (!response.ok) throw new Error("provider unavailable");
-      const data = await response.json() as { verified: RestaurantCandidate | null; candidates: RestaurantCandidate[]; addressSearched?: boolean; addressSearchFailed?: boolean };
+      const data = await response.json() as { verified: RestaurantCandidate | null; candidates: RestaurantCandidate[]; addressSearched?: boolean; addressSearchFailed?: boolean; noRegionalCandidates?: boolean };
       if (data.verified) {
         const place = data.verified;
         return { ...item, name: place.name, address: place.address, status: "confirmed" as const,
@@ -3831,7 +3831,7 @@ function RestaurantMapView({
           candidates: [], message: data.addressSearched ? "주소로 지점을 추가 검색해 상호명·건물번호까지 확인했어요." : "상호명·주소 대조 완료" };
       }
       return { ...item, status: "needs-review" as const, confirmed: undefined,
-        candidates: data.candidates.filter((place) => place.open).slice(0, 10), message: nameOnly ? "상호명으로 다시 검색했어요. 주소를 입력해 지점을 좁힐 수도 있어요." : data.addressSearchFailed ? "주소 추가 검색을 완료하지 못했어요. 이름 검색 후보를 확인하거나 다시 검색하세요." : "주소에 가까운 동일 상호 후보를 표시했어요. 건물번호까지 일치하지 않으면 직접 확인해 주세요." };
+        candidates: data.candidates.filter((place) => place.open).slice(0, 10), message: data.noRegionalCandidates ? "입력한 지역에서 후보를 찾지 못했어요. 다른 지역은 표시하지 않아요. 상호명·주소를 수정해 다시 검색하세요." : nameOnly ? "입력한 지역 안에서 상호명으로 다시 검색했어요. 올바른 장소를 선택하세요." : data.addressSearchFailed ? "주소 추가 검색을 완료하지 못했어요. 같은 지역의 후보를 확인하거나 다시 검색하세요." : "주소에 가까운 동일 상호 후보를 표시했어요. 건물번호까지 일치하지 않으면 직접 확인해 주세요." };
     } catch {
       return { ...item, status: "needs-review" as const, confirmed: undefined, candidates: [], message: "검색 서비스에 연결하지 못했어요. 다시 확인할 수 있어요." };
     }
