@@ -3090,3 +3090,28 @@ h1 {
 .restaurant-batch-actions button { min-height: 44px; border: 0; border-radius: 10px; background: #2f7357; color: white; font-weight: 700; }
 .restaurant-batch-actions button:disabled { opacity: .45; }
 .restaurant-batch-actions .cancel { background: #e6ece8; color: #53675d; }
+
+/* Compact note utilities; keep ordinary rows focused on their text. */
+.note-links { margin: 8px 0; min-width: 0; }
+.note-links summary { cursor: pointer; padding: 10px 6px; color: #27694e; font-size: 13px; }
+.note-links > div { display: flex; flex-direction: column; gap: 6px; }
+.note-links a { display: block; color: #216347; background: #eff6f2; padding: 10px; border-radius: 10px; overflow-wrap: anywhere; text-decoration: none; min-height: 44px; }
+.work-menu-popover .note-links { width: 100%; max-width: 260px; }
+.note-history-overlay { position: fixed; inset: 0; z-index: 11000; background: #203e3480; padding: max(14px, env(safe-area-inset-top)) 12px max(14px, env(safe-area-inset-bottom)); display: flex; align-items: center; justify-content: center; }
+.note-history-overlay > section { width: min(100%, 520px); max-height: 100%; overflow-y: auto; overscroll-behavior: contain; border-radius: 20px; background: #f7faf8; padding: 20px; }
+.note-history-overlay header { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.note-history-overlay header h2 { margin: 0; }
+.note-history-overlay button { background: #2e7155; color: white; border: 0; border-radius: 10px; padding: 12px 14px; min-height: 44px; cursor: pointer; }
+.note-history-overlay article { padding: 16px 0; border-top: 1px solid #cdded4; }
+.note-history-overlay p, .note-history-overlay h3 { white-space: pre-wrap; overflow-wrap: anywhere; }
+.note-history-overlay small { color: #60756a; }
+.today-notes article { display: flex; gap: 8px; border-bottom: 1px solid #d4e0da; padding: 8px 0; }
+.today-notes article button { border: 0; border-radius: 10px; padding: 10px; min-height: 44px; background: #edf5ef; color: #215b43; text-align: left; cursor: pointer; }
+.today-notes article button:first-child { flex: 1; min-width: 0; }
+.today-notes strong, .today-notes small { display: block; overflow-wrap: anywhere; }
+.today-note-hint { font-size: 12px; color: #64796e; }
+.restaurant-region small { font-size: 12px; color: #64796e; font-weight: normal; }
+.work-menu-popover { width: min(250px, calc(100vw - 72px)); max-height: min(65vh, 480px); overflow-y: auto; overscroll-behavior: contain; }
+.work-menu-popover button { min-height: 44px; font-size: 13px; }
+.note-phone { display: flex; gap: 5px; flex-wrap: wrap; align-items: center; }
+.note-phone button { min-height: 44px; border: 0; border-radius: 10px; background: #eff6f2; color: #216347; padding: 10px; }

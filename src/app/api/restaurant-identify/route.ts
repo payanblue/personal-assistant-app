@@ -6,10 +6,15 @@ const food = new Set(['restaurant', 'chinese', 'meat', 'bunsik', 'western', 'jap
 type Place = { name?: string; road_address?: string; lot_address?: string; lat?: number; lng?: number; path?: string; category_slug?: string; source_category?: string; geo_confidence?: number; status?: string; region_code?: string };
 export async function POST(request: Request) {
   try {
-    const body = await request.json() as { name?: unknown; address?: unknown; nameOnly?: unknown };
+    const body = await request.json() as { name?: unknown; address?: unknown; region?: unknown; nameOnly?: unknown };
     if (typeof body.name !== 'string' || body.name.trim().length < 2 || body.name.length > 80 || (body.address !== undefined && typeof body.address !== 'string'))
       return NextResponse.json({ error: 'invalid-query' }, { status: 400 });
-    const name = body.name.trim(), address = typeof body.address === 'string' ? body.address.slice(0, 180) : '';
+    if (body.region !== undefined && (typeof body.region !== 'string' || body.region.length > 60))
+      return NextResponse.json({ error: 'invalid-region' }, { status: 400 });
+    const region = typeof body.region === 'string' ? body.region.trim() : '';
+    if (region && !addressRegionPath(region)) return NextResponse.json({ error: 'invalid-region' }, { status: 400 });
+    const name = body.name.trim(), rawAddress = typeof body.address === 'string' ? body.address.slice(0, 180) : '';
+    const address = region && !addressRegionPath(rawAddress) ? `${region} ${rawAddress}`.trim() : rawAddress;
     const headers = { 'User-Agent': 'personal-assistant-app/3.0 (+https://github.com/payanblue/personal-assistant-app)', Accept: 'application/json' };
     // All additional lookups share a bounded request deadline; retain name results on failure.
     const signal = AbortSignal.timeout(20000);
@@ -26,7 +31,7 @@ export async function POST(request: Request) {
     let items = await search();
     let addressSearched = false;
     let addressSearchFailed = false;
-    const path = addressRegionPath(address);
+    const path = addressRegionPath(address) || addressRegionPath(region);
     if (path) {
       try {
         let region: { code?: string; level?: string } | undefined;
@@ -42,7 +47,7 @@ export async function POST(request: Request) {
         // If the dong is not available, a matching district from name results can still narrow the search.
         const code = region?.code ?? items.find((item) => item.region_code && regionMatches(address, item.road_address || item.lot_address || ''))?.region_code;
         if (code && /^\d{10}$/.test(code)) {
-          const extra = await search(code, region?.level === 'dong' ? 'dong' : 'sigungu');
+          const extra = await search(code, region?.level === 'dong' ? 'dong' : region?.level === 'sigungu' ? 'sigungu' : 'nation');
           items = [...new Map([...items, ...extra].map((item) => [item.path, item])).values()];
           addressSearched = true;
         } else addressSearchFailed = true;
@@ -56,7 +61,7 @@ export async function POST(request: Request) {
       name: item.name!, address: item.road_address || item.lot_address!, lotAddress: item.lot_address, latitude: item.lat!, longitude: item.lng!,
       category: item.source_category ?? '', sourceUrl: `https://place.clariosync.com/p/${item.path?.split('/')[2] ?? ''}/${encodeURIComponent(item.name!)}`,
       sourceAttribution: attribution, originalCoordinates: item.geo_confidence === 2, open: item.status === 'open',
-    })).filter((item) => regionMatches(address, item.address));
+    })).filter((item) => regionMatches(address, item.address) && regionMatches(region, item.address));
     candidates.sort((a, b) => Number(restaurantNameMatches(name, b.name)) - Number(restaurantNameMatches(name, a.name)) ||
       candidateAddressScore(address, b) - candidateAddressScore(address, a));
     const verified = body.nameOnly === true ? null : verifiedRestaurant(name, address, candidates);

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { restaurantNameMatches, roadIdentity, type RestaurantCandidate } from "../lib/restaurant-identification";
+import { rememberRevision, noteActions, type NoteRevision } from "../lib/note-tools";
 import KoreanLunarCalendar from "korean-lunar-calendar";
 import RestaurantVectorMap, { distanceKm, validMapPoint, type MapBounds, type RestaurantMapController } from "../components/restaurant-vector-map";
 
@@ -208,6 +209,8 @@ const quickWeatherLocations: WeatherLocation[] = [
 ];
 
 type Memo = {
+  revisions?: NoteRevision[];
+  todayDate?: string;
   id: number;
   title: string;
   content: string;
@@ -223,6 +226,8 @@ type Memo = {
 const sampleMemos: Memo[] = [];
 
 type WorkItem = {
+  revisions?: NoteRevision[];
+  todayDate?: string;
   id: number;
   title: string;
   details: string;
@@ -271,6 +276,7 @@ type BackupPayload = {
 };
 
 type AppSettings = {
+  restaurantSearchRegion?: string;
   autoDeleteCompletedMemos: boolean;
   lastBackupAttemptAt?: string;
   lastBackupFileName?: string;
@@ -1183,12 +1189,16 @@ function HomeView({
   go,
   memos,
   events,
+  workItems, setMemos, setWorkItems,
   weatherLocation,
   openVoice,
 }: {
   go: (tab: Tab) => void;
   memos: Memo[];
   events: CalendarEvent[];
+  workItems: WorkItem[];
+  setMemos: React.Dispatch<React.SetStateAction<Memo[]>>;
+  setWorkItems: React.Dispatch<React.SetStateAction<WorkItem[]>>;
   weatherLocation: WeatherLocation;
   openVoice: () => void;
 }) {
@@ -1197,7 +1207,13 @@ function HomeView({
     .filter((memo) => !memo.deleted && !memo.completed)
     .slice(0, 2);
   const greeting = weatherGreeting(currentWeather);
-  const today = localDateKey();
+  const [today, setToday] = useState(localDateKey);
+  useEffect(() => {
+    const update = () => setToday(localDateKey());
+    const timer = window.setInterval(update, 60000);
+    window.addEventListener("focus", update);
+    return () => { window.clearInterval(timer); window.removeEventListener("focus", update); };
+  }, []);
   const todayEvents = events
     .filter(
       (event) => calendarEventIsVisible(event) && eventOccursOn(event, today),
@@ -1337,6 +1353,19 @@ function HomeView({
           )}
         </div>
       </section>
+      <section className="section-block today-notes">
+        <div className="section-title"><h2>오늘 볼 메모</h2></div>
+        <p className="today-note-hint">메모의 ‘오늘 보기’로 추가 · 날짜가 바뀌면 오늘 목록에서만 숨겨져요.</p>
+        {memos.filter((item) => item.todayDate === today && !item.deleted && !item.completed).map((item) => <article key={`memo-${item.id}`}>
+          <button onClick={() => go("memo")}><small>일반 메모</small><strong>{item.title}</strong></button>
+          <button aria-label={`${item.title} 오늘 목록에서 해제`} onClick={() => setMemos((current) => current.map((entry) => entry.id === item.id ? { ...entry, todayDate: undefined } : entry))}>해제</button>
+        </article>)}
+        {workItems.filter((item) => item.todayDate === today && !item.archived && !item.completed).map((item) => <article key={`work-${item.id}`}>
+          <button onClick={() => { localStorage.setItem("my-assistant-last-work-tab", item.project === "생활" ? "life" : "work"); go("work"); }}><small>{item.project === "생활" ? "생활" : "업무"} 메모</small><strong>{item.title}</strong></button>
+          <button aria-label={`${item.title} 오늘 목록에서 해제`} onClick={() => setWorkItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, todayDate: undefined } : entry))}>해제</button>
+        </article>)}
+        {!memos.some((item) => item.todayDate === today && !item.deleted && !item.completed) && !workItems.some((item) => item.todayDate === today && !item.archived && !item.completed) && <p>오늘 볼 메모를 아직 선택하지 않았어요.</p>}
+      </section>
       <section className="shortcut-grid">
         <button onClick={() => go("memo")}>
           <span>📝</span>
@@ -1382,36 +1411,38 @@ function PageHeader({
 }
 
 function ContactActions({ title, text }: { title: string; text: string }) {
-  void title;
   const [copied, setCopied] = useState("");
-  const pattern =
-    /(?:\+82[-.\s]?)?(?:0?10|0?11|0?16|0?17|0?18|0?19|0?2|0?3[1-3]|0?4[1-4]|0?5[1-5]|0?6[1-4]|0?70|0?80)[-.\s]?\d{3,4}[-.\s]?\d{4}/g;
-  const numbers = [...new Set(text.match(pattern) ?? [])];
-  if (numbers.length === 0) return null;
-  return (
-    <div className="contact-list">
-      {numbers.map((number) => {
-        const cleanNumber = number.replace(/[^+\d]/g, "");
-        return (
-          <div className="contact-actions" key={number}>
-            <strong>☎ {number}</strong>
-            <div>
-              <a href={`tel:${cleanNumber}`}>전화</a>
-              <a href={`sms:${cleanNumber}`}>문자</a>
-              <button
-                onClick={async () => {
-                  await navigator.clipboard.writeText(number);
-                  setCopied(number);
-                }}
-              >
-                {copied === number ? "복사됨" : "복사"}
-              </button>
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
+  const actions = noteActions(`${title}\n${text}`);
+  if (!actions.phones.length && !actions.urls.length && !actions.addresses.length) return null;
+  return <details className="note-links"><summary>전화·지도·링크 바로 실행</summary><div>
+    {actions.phones.map((phone) => <div className="note-phone" key={phone}><a href={`tel:${phone.replace(/[^+\d]/g, "")}`}>☎ {phone}</a><a href={`sms:${phone.replace(/[^+\d]/g, "")}`}>문자</a><button onClick={async () => { try { await navigator.clipboard.writeText(phone); setCopied(phone); } catch { window.alert("복사하지 못했어요."); } }}>{copied === phone ? "복사됨" : "복사"}</button></div>)}
+    {actions.addresses.map((address) => <a key={address} href={`https://map.naver.com/p/search/${encodeURIComponent(address)}`} target="_blank" rel="noopener noreferrer">📍 {address} 검색</a>)}
+    {actions.urls.map((url) => <a key={url} href={url} target="_blank" rel="noopener noreferrer">🔗 {url}</a>)}
+  </div></details>;
+}
+
+function RevisionViewer({ revisions, close, restore }: { revisions: NoteRevision[]; close: () => void; restore: (revision: NoteRevision) => void }) {
+  const closeRef = useRef(close);
+  useEffect(() => { closeRef.current = close; }, [close]);
+  useEffect(() => {
+    window.history.pushState(assistantHistoryState({ personalAssistantOverlay: "note-history" }), "");
+    const back = () => closeRef.current();
+    const key = (event: KeyboardEvent) => { if (event.key === "Escape") window.history.back(); };
+    window.addEventListener("popstate", back);
+    window.addEventListener("keydown", key);
+    return () => { window.removeEventListener("popstate", back); window.removeEventListener("keydown", key); };
+  }, []);
+  return <div className="note-history-overlay" role="dialog" aria-modal="true" aria-label="수정 이력"><section>
+    <header><h2>수정 이력</h2><button autoFocus onClick={() => window.history.back()}>닫기</button></header>
+    <p>최근 10개 내용 보관 · 복원해도 현재 내용은 이력에 남아요.</p>
+    {!revisions.length && <p>아직 수정 이력이 없어요. 앞으로 내용을 수정하면 이전 내용이 남습니다.</p>}
+    {revisions.map((revision, index) => <article key={`${revision.capturedAt}-${index}`}>
+      <small>보관: {new Date(revision.capturedAt).toLocaleString("ko-KR")}</small>
+      <h3>{revision.title}</h3><p>{revision.content ?? revision.details ?? ""}</p>
+      {revision.category && <small>{revision.category}</small>}
+      <button onClick={() => { restore(revision); window.history.back(); }}>이 내용으로 복원</button>
+    </article>)}
+  </section></div>;
 }
 
 function MemoView({
@@ -1428,6 +1459,7 @@ function MemoView({
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [category, setCategory] = useState<Memo["category"]>("개인");
+  const [historyId, setHistoryId] = useState<number | null>(null);
   const [copiedId, setCopiedId] = useState<number | null>(null);
   const displayMemoTime = (value: string) => {
     const parsed = new Date(value);
@@ -1495,13 +1527,10 @@ function MemoView({
       setMemos((items) =>
         items.map((item) =>
           item.id === editing.id
-            ? {
-                ...item,
-                title: title.trim() || "제목 없는 메모",
-                content: content.trim(),
-                category,
+            ? rememberRevision(item, {
+                title: title.trim() || "제목 없는 메모", content: content.trim(), category,
                 updatedAt: new Date().toISOString(),
-              }
+              })
             : item,
         ),
       );
@@ -1609,6 +1638,7 @@ function MemoView({
           </div>
         </section>
       )}
+      {historyId !== null && <RevisionViewer revisions={memos.find((memo) => memo.id === historyId)?.revisions ?? []} close={() => setHistoryId(null)} restore={(revision) => setMemos((current) => current.map((item) => item.id === historyId ? rememberRevision(item, { title: revision.title, content: revision.content ?? "", category: (revision.category ?? item.category) as Memo["category"], updatedAt: new Date().toISOString() }) : item))} />}
       <section className="card-list">
         {visibleMemos.map((memo) => (
           <article
@@ -1622,7 +1652,7 @@ function MemoView({
                 {memo.category}
               </span>
               <small>
-                {memo.pinned && "★ 중요 · "}
+                {memo.todayDate === localDateKey() && "☀ 오늘 · "}{memo.pinned && "★ 중요 · "}
                 {displayMemoTime(memo.updatedAt || memo.createdAt)}
               </small>
             </div>
@@ -1706,6 +1736,8 @@ function MemoView({
                     {memo.completed ? "완료 해제" : "✓ 완료"}
                   </button>
                   <button onClick={() => openEdit(memo)}>수정</button>
+                  <button onClick={() => setHistoryId(memo.id)}>수정 이력</button>
+                  <button onClick={() => setMemos((current) => current.map((item) => item.id === memo.id ? { ...item, todayDate: item.todayDate === localDateKey() ? undefined : localDateKey() } : item))}>{memo.todayDate === localDateKey() ? "오늘 목록 해제" : "오늘 보기"}</button>
                   <button
                     onClick={() =>
                       setMemos((items) =>
@@ -1757,6 +1789,7 @@ function WorkView({
   const [search, setSearch] = useState("");
   const [menuId, setMenuId] = useState<number | null>(null);
   const [showCompleted, setShowCompleted] = useState(false);
+  const [historyId, setHistoryId] = useState<number | null>(null);
   const [copiedId, setCopiedId] = useState<number | null>(null);
   const [quickDrafts, setQuickDrafts] = useState({ work: "", life: "" });
   const [undoMove, setUndoMove] = useState<{
@@ -1891,7 +1924,7 @@ function WorkView({
     setItems((current) =>
       current.map((item) =>
         item.id === editingId
-          ? { ...item, title: editTitle.trim(), updatedAt: new Date().toISOString() }
+          ? rememberRevision(item, { title: editTitle.trim(), updatedAt: new Date().toISOString() })
           : item,
       ),
     );
@@ -2042,6 +2075,7 @@ function WorkView({
 
   return (
     <>
+      {historyId !== null && <RevisionViewer revisions={items.find((item) => item.id === historyId)?.revisions ?? []} close={() => setHistoryId(null)} restore={(revision) => setItems((current) => current.map((item) => item.id === historyId ? rememberRevision(item, { title: revision.title, details: revision.details ?? item.details, updatedAt: new Date().toISOString() }) : item))} />}
       <PageHeader
         title={filter === "trash" ? "메모 휴지통" : activeLabel}
         action={filter !== "trash" ? "＋" : undefined}
@@ -2167,7 +2201,7 @@ function WorkView({
                 className="work-line-title"
                 onClick={() => openEditItem(item)}
               >
-                <span>{item.pinned ? "📌 " : ""}{item.title}</span>
+                <span>{item.todayDate === localDateKey() ? "☀ " : ""}{item.pinned ? "📌 " : ""}{item.title}</span>
                 <small>{shortTime(item.updatedAt || item.createdAt)}</small>
               </button>
               {filter !== "trash" ? (
@@ -2182,6 +2216,9 @@ function WorkView({
                   {menuId === item.id && (
                     <div className="work-menu-popover">
                       <button onClick={() => copyItem(item)}>복사</button>
+                      <button onClick={() => { setHistoryId(item.id); setMenuId(null); }}>수정 이력</button>
+                      <button onClick={() => { setItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, todayDate: entry.todayDate === localDateKey() ? undefined : localDateKey() } : entry)); setMenuId(null); }}>{item.todayDate === localDateKey() ? "오늘 목록 해제" : "오늘 보기"}</button>
+                      <ContactActions title={item.title} text={item.details} />
                       <button onClick={() => {
                         setItems((current) => current.map((work) => work.id === item.id ? { ...work, pinned: !work.pinned } : work));
                         setMenuId(null);
@@ -3489,6 +3526,7 @@ function likelyRestaurantName(text: string) {
 }
 
 function RestaurantMapView({
+  searchRegion, setSearchRegion,
   restaurants,
   setRestaurants,
   sharedFiles,
@@ -3496,6 +3534,8 @@ function RestaurantMapView({
   clearSharedFiles,
   clearSharedPlace,
 }: {
+  searchRegion: string;
+  setSearchRegion: (region: string) => void;
   restaurants: Restaurant[];
   setRestaurants: React.Dispatch<React.SetStateAction<Restaurant[]>>;
   sharedFiles: File[];
@@ -3885,7 +3925,7 @@ function RestaurantMapView({
     try {
       const response = await fetch(`${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/api/restaurant-identify`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: item.name.trim(), address: nameOnly ? item.address ?? "" : item.lookupAddress ?? item.address ?? "", nameOnly }),
+        body: JSON.stringify({ region: searchRegion, name: item.name.trim(), address: nameOnly ? item.address ?? "" : item.lookupAddress ?? item.address ?? "", nameOnly }),
       });
       if (!response.ok) throw new Error("provider unavailable");
       const data = await response.json() as { verified: RestaurantCandidate | null; candidates: RestaurantCandidate[]; addressSearched?: boolean; addressSearchFailed?: boolean; noRegionalCandidates?: boolean };
@@ -3903,7 +3943,7 @@ function RestaurantMapView({
     } catch {
       return { ...item, status: "needs-review" as const, confirmed: undefined, candidates: [], message: "검색 서비스에 연결하지 못했어요. 다시 확인할 수 있어요." };
     }
-  }, []);
+  }, [searchRegion]);
   const retryScreenshot = async (item: RestaurantImportItem, withAddress = false) => {
     if (identifying || readingScreenshots.current || !item.name.trim()) return;
     setIdentifying(true);
@@ -4164,6 +4204,12 @@ function RestaurantMapView({
         <div className="restaurant-editor-overlay" role="dialog" aria-modal="true" aria-label="맛집 등록" inert={screenshotPreview ? true : undefined}>
           <section className="restaurant-editor">
             <header><div><p className="eyebrow">내 맛집 지도</p><h2>{editingId === null ? "맛집 등록" : "맛집 수정"}</h2></div><button onClick={closeRestaurantOverlay}>×</button></header>
+            <label className="restaurant-region">검색 지역 (현재 위치와 별도)
+              <input list="restaurant-search-regions" value={searchRegion} disabled={identifying} maxLength={60} placeholder="예: 부산 또는 부산 부산진구 · 비우면 전체"
+                onChange={(event) => { setSearchRegion(event.target.value); setBulkItems((current) => current.map((item) => item.status === "confirmed" ? item : { ...item, candidates: [], message: "검색 지역을 바꿨어요. 다시 검색해 주세요." })); }} />
+              <datalist id="restaurant-search-regions">{["울산", "부산", "제주", "서울", "대구", "인천", "광주", "대전", "세종", "경기", "강원", "충북", "충남", "전북", "전남", "경북", "경남"].map((region) => <option key={region} value={region} />)}</datalist>
+              <small>선택한 지역 안에서 검색해요. 다음 등록에도 유지됩니다.</small>
+            </label>
             <div className="restaurant-import-actions">
               <button disabled={identifying} onClick={() => fileInput.current?.click()}>▣ 지도 캡처 여러 장 가져오기</button>
               <input ref={fileInput} type="file" accept="image/*" multiple hidden onChange={(event) => { const files = Array.from(event.target.files ?? []); if (files.length) void readScreenshots(files); event.target.value = ""; }} />
@@ -5051,6 +5097,13 @@ export default function Home() {
         !Array.isArray(backup.events)
       )
         throw new Error("invalid backup");
+      for (const note of [...backup.memos, ...backup.workItems]) {
+        if (!note || typeof note.title !== "string" || typeof note.id !== "number" ||
+          (note.todayDate !== undefined && (typeof note.todayDate !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(note.todayDate))) ||
+          (note.revisions !== undefined && (!Array.isArray(note.revisions) || note.revisions.some((revision) =>
+            !revision || typeof revision.title !== "string" || typeof revision.capturedAt !== "string" || Number.isNaN(Date.parse(revision.capturedAt)) ||
+            [revision.content, revision.details, revision.category].some((value) => value !== undefined && typeof value !== "string"))))) throw new Error("invalid note metadata");
+      }
       const counts = [
         `일반 메모 ${backup.memos.length}개`,
         `업무·생활 메모 ${backup.workItems.length}개`,
@@ -5092,7 +5145,16 @@ export default function Home() {
           usedIds.add(safeItem.id);
           return [safeItem];
         });
-        return [...current, ...additions];
+        const mergedCurrent = current.map((item) => {
+          const incomingItem = incoming.find((entry) => signature(entry) === signature(item));
+          if (!incomingItem) return item;
+          const existing = item as T & { revisions?: NoteRevision[]; todayDate?: string };
+          const restored = incomingItem as T & { revisions?: NoteRevision[]; todayDate?: string };
+          if (!existing.revisions && !restored.revisions && !restored.todayDate) return item;
+          const unique = new Map([...(existing.revisions ?? []), ...(restored.revisions ?? [])].map((revision) => [JSON.stringify(revision), revision]));
+          return { ...item, todayDate: existing.todayDate ?? restored.todayDate, revisions: [...unique.values()].sort((a, b) => b.capturedAt.localeCompare(a.capturedAt)).slice(0, 10) };
+        });
+        return [...mergedCurrent, ...additions];
       };
       const restoredMemos = retainRecentCompleted(
         backup.memos,
@@ -5283,6 +5345,7 @@ export default function Home() {
       <HomeView
         go={navigateTab}
         memos={memos}
+        workItems={workItems} setMemos={setMemos} setWorkItems={setWorkItems}
         events={events}
         weatherLocation={weatherLocation}
         openVoice={openVoiceSheet}
@@ -5300,6 +5363,8 @@ export default function Home() {
     charge: <ChargerView chargers={chargers} setChargers={setChargers} />,
     restaurants: (
       <RestaurantMapView
+        searchRegion={appSettings.restaurantSearchRegion ?? ""}
+        setSearchRegion={(region) => setAppSettings((current) => ({ ...current, restaurantSearchRegion: region }))}
         restaurants={restaurants}
         setRestaurants={setRestaurants}
         sharedFiles={sharedRestaurantFiles}

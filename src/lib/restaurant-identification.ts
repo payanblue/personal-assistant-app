@@ -17,7 +17,7 @@ export function addressRegionPath(address: string) {
   // 부산진구 includes the province name within the district; do not shorten it to 진구.
   const rest = address.slice(start).startsWith('부산진구') ? address.slice(start).trim() : address.slice(start + match[0].length).trim();
   const districts = rest.match(/^[가-힣]+(?:시|군|구)(?:\s+[가-힣]+구)?(?=\s|$)/)?.[0];
-  if (!districts) return province === provinces.세종 ? province : null;
+  if (!districts) return province;
   const dong = rest.slice(districts.length).match(/(?:^|\s)([가-힣]+(?:동|읍|면))(?=\s|\d|$)/)?.[1];
   return [province, districts, dong].filter(Boolean).join('/');
 }
